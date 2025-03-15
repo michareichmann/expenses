@@ -1,73 +1,38 @@
-import sqlite3
 from pathlib import Path
+import json
 
 import pandas as pd
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import sessionmaker
 
+from src.tables import Base, Exclude, ExcludeMeta
+
+
+# todo: category, data tables
+# todo: check if exclude file has changed and then update DB
+# todo: handle duplicates (see crypto)
+# todo: exclude view check the relationship from sqlalchemy
 
 class Data(pd.DataFrame):
-
-    TABLE = 'T_TRANSACTIONS'
-    T_EXCL_META = 'T_EXCLUDE_META'
-    T_EXCL = 'T_EXCLUDE'
-    V_EXCL = 'V_EXCLUDE'
 
     DIR = Path(__file__).resolve().parent.parent / 'data'
     DB_PATH = DIR / 'data.db'
 
-    CONNECTION = sqlite3.connect(DB_PATH)
-    CURSOR = CONNECTION.cursor()
+    ENGINE = create_engine("sqlite:///example.db", echo=False)
+    Base.metadata.create_all(ENGINE)
+
+    _Session = sessionmaker(bind=ENGINE)
+    SESSION = _Session()
 
     def __init__(self, data=None, **kwargs):
         if data is None:
-            self.init_db()  # create new table if it does not exist
             data = self.load()
         super().__init__(data, **kwargs)
 
     # --------------------------------------------
     # region INIT
     def load(self):
-        return Data.read_exclude()
-
-    @staticmethod
-    def init_db():
-        for f in [Data.init_exclude_meta, Data.init_exclude, Data.init_v_excl]:
-            Data.CONNECTION.cursor().execute(f())
-
-        # Data.CONNECTION.cursor().execute(f"""
-        # CREATE TABLE IF NOT EXISTS {Data.TABLE} (
-        #     ID INTEGER PRIMARY KEY,
-        #     Symbol TEXT NOT NULL,
-        #     Type TEXT NOT NULL,
-        #     Quantity FLOAT NOT NULL,
-        #     Q_NET FLOAT NOT NULL,
-        #     Price FLOAT,
-        #     Value FLOAT,
-        #     Fees FLOAT,
-        #     Currency TEXT,
-        #     Date DATETIME NOT NULL,
-        #     UNIQUE(Symbol, Date) -- Ensures the entire row is unique
-        # )
-        # """)
-
-    @staticmethod
-    def init_exclude_meta():
-        return f"""
-            CREATE TABLE IF NOT EXISTS {Data.T_EXCL_META} (
-                ID INT NOT NULL,
-                COLUMN_NAME TEXT NOT NULL
-            )
-            """
-
-    @staticmethod
-    def init_exclude():
-        return f"""
-            CREATE TABLE IF NOT EXISTS {Data.T_EXCL} (
-                TAGS TEXT NOT NULL,
-                EXCLUDE_ID INT NOT NULL,
-                UNIQUE (TAGS, EXCLUDE_ID),
-                FOREIGN KEY (EXCLUDE_ID) REFERENCES {Data.T_EXCL_META}(ID) ON DELETE CASCADE
-            )
-            """
+        return self.read_db(Exclude)
 
     @staticmethod
     def init_v_excl():
@@ -80,24 +45,22 @@ class Data(pd.DataFrame):
         """
 
     @staticmethod
-    def insert2db(table, columns, *rows):
-        df = pd.DataFrame(rows, columns=columns)
-        df.to_sql(table, Data.CONNECTION, index=False, if_exists='append')
+    def insert_exclude():
+        f = Data.DIR / 'exclude.json'
+        data = json.loads(f.read_text())
+        # m = hashlib.sha256()
+        # m.update(f.read_bytes())
+        # m.hexdigest()
+        Data.insert2db(ExcludeMeta, *[(i, col) for i, col in enumerate(data.keys())])
+        Data.insert2db(Exclude, *[(tag, i) for i, lst in enumerate(data.values()) for tag in lst])
 
     @staticmethod
-    def read_db(table):
-        return pd.read_sql(f'SELECT * FROM {table}', Data.CONNECTION)
+    def insert2db(table: Base, *rows):
+        df = pd.DataFrame(rows, columns=[col.name for col in table.__table__.columns])
+        df.to_sql(table.__tablename__, Data.ENGINE, index=False, if_exists='append')
 
     @staticmethod
-    def insert_exclude(*rows):
-        Data.insert2db(Data.T_EXCL, ['TAGS', 'EXCLUDE_ID'], *rows)
+    def read_db(table: Base):
+        return pd.read_sql(select(table), Data.ENGINE)
 
-    @staticmethod
-    def insert_exclude_id(*rows):
-        Data.insert2db(Data.T_EXCL_META, ['ID', 'COLUMN_NAME'], *rows)
 
-    @staticmethod
-    def read_exclude():
-        return Data.read_db(Data.T_EXCL)
-
-    # todo: exclude, category, data tables
