@@ -1,6 +1,8 @@
-from sqlalchemy import Column, Integer, String, ForeignKey
-from sqlalchemy.orm import declarative_base, relationship
+import hashlib
+from pathlib import Path
 
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, func, delete, Engine
+from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
 
@@ -57,3 +59,37 @@ class TCategory(MyBase):
     meta_id = Column(Integer, ForeignKey('meta.id'), nullable=False)
 
     meta = relationship('TMeta', back_populates='category')
+
+
+class TFileHash(MyBase):
+    __tablename__ = 'file_hashes'
+
+    fname = Column(String, primary_key=True)     # file path or identifier
+    hash = Column(String, nullable=False)        # SHA256 hex digest
+    time_stamp = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    @staticmethod
+    def compute(path: Path) -> str:
+        """Compute SHA256 hash of a file."""
+        m = hashlib.sha256()
+        m.update(path.read_bytes())
+        return m.hexdigest()
+
+    @classmethod
+    def has_update(cls, session, file_path: Path) -> bool:
+        """Return True if file is new/changed, False if unchanged."""
+        new_hash = cls.compute(file_path)
+        record = session.get(cls, str(file_path))
+
+        if record is not None and record.hash == new_hash:
+            return False
+
+        if record is None:  # first time seen
+            record = cls(fname=str(file_path), hash=new_hash)
+            session.add(record)
+
+        elif record.hash != new_hash:
+            record.hash = new_hash
+
+        session.commit()
+        return True
