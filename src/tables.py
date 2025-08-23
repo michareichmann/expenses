@@ -26,6 +26,10 @@ class MyBase(Base):
         if commit:
             session.commit()
 
+    @classmethod
+    def drop(cls, engine: Engine):
+        cls.__table__.drop(engine)
+
 class TMeta(MyBase):
     __tablename__ = 'meta'
 
