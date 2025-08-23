@@ -5,7 +5,28 @@ from sqlalchemy.orm import declarative_base, relationship
 Base = declarative_base()
 
 
-class TMeta(Base):
+class classproperty:  # noqa
+    def __init__(self, fget):
+        self.fget = fget
+
+    def __get__(self, instance, owner):
+        return self.fget(owner)
+
+
+class MyBase(Base):
+    __abstract__ = True
+
+    @classproperty
+    def name(self):
+        return self.__tablename__
+
+    @classmethod
+    def delete(cls, session, *clause, commit=True):
+        session.execute(delete(cls).where(*clause))
+        if commit:
+            session.commit()
+
+class TMeta(MyBase):
     __tablename__ = 'meta'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -15,7 +36,7 @@ class TMeta(Base):
     category = relationship('TCategory', back_populates='meta', cascade='all, delete')
 
 
-class TExclude(Base):
+class TExclude(MyBase):
     __tablename__ = 'exclude'
 
     tags = Column(String, primary_key=True)
@@ -24,7 +45,7 @@ class TExclude(Base):
     meta = relationship('TMeta', back_populates='exclude')
 
 
-class TCategory(Base):
+class TCategory(MyBase):
     __tablename__ = 'category'
 
     category = Column(String, primary_key=True)
