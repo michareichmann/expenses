@@ -1,15 +1,16 @@
-from pathlib import Path
 import json
-import hashlib
+from abc import ABC, abstractmethod
+from pathlib import Path
+from typing import Type
 
 import pandas as pd
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from src.tables import Base, TMeta, TExclude, TCategory
+from src.tables import Base, TMeta, TExclude, TCategory, MyBase, TFileHash
 
 
-# todo: category, data tables
+# todo: data tables
 # todo: handle duplicates (see crypto)
 
 class Data(pd.DataFrame):
@@ -31,36 +32,46 @@ class Data(pd.DataFrame):
     # --------------------------------------------
     # region INIT
     def load(self):
-        return self.read_db(TExclude)
+        return self.read(TExclude)
 
     @staticmethod
-    def insert2db(table: Base, *rows):
-        df = pd.DataFrame(rows, columns=[col.name for col in table.__table__.columns])
-        df.to_sql(table.__tablename__, Data.ENGINE, index=False, if_exists='append')
+    def read(table: Type[MyBase]) -> pd.DataFrame:
+        return pd.read_sql(select(table), Data.SESSION.bind)
 
     @staticmethod
-    def read_db(table: Base):
-        return pd.read_sql(select(table), Data.ENGINE)
+    def write(df: pd.DataFrame, table: Type[MyBase], index=False):
+        return df.to_sql(table.__tablename__, Data.SESSION.bind, if_exists='append',
+                         index=index)
+
+    @property
+    def table_names(self):
+        return list(Base.metadata.tables.keys())
+
+    def _write_meta(self):
+        """ update the Meta table. only use if the structure of the input data changed. """
+        new = ['Date', 'Exe Date', 'Title', 'Vendor', 'Account', 'Amount', 'Balance']
+        TMeta.delete(self.SESSION)
+        Data.SESSION.bulk_save_objects([TMeta(tag_type=typ) for typ in new])
+        Data.SESSION.commit()
+        print(f'updated {TMeta.name} with {len(new)} rows')
 
 
-class _Base:
+class _Base(ABC):
 
-    FNAME = None
-    FNAME_HASH = None
-    T = None
-    META_ID_NAME = None
+    FNAME: Path
+    T: Type[MyBase]
 
     def __init__(self):
-        self.Hash = self.get_file_hash()
         self.update()
 
     @property
-    def t(self):
-        return Data.read_db(self.T)
+    def table(self):
+        return Data.read(self.T)
+    t = table
 
     @property
     def meta(self):
-        return Data.read_db(TMeta)
+        return Data.read(TMeta)
 
     @property
     def view(self):
@@ -68,57 +79,37 @@ class _Base:
         return pd.read_sql(s, Data.ENGINE)
     v = view
 
-    def get_file_hash(self):
-        m = hashlib.sha256()
-        m.update(self.FNAME.read_bytes())
-        return m.hexdigest()
+    @classmethod
+    def has_update(cls):
+        return TFileHash.has_update(Data.SESSION, cls.FNAME)
 
-    def save_hash(self):
-        with open(self.FNAME_HASH, 'w') as f:
-            f.write(self.Hash)
-
-    def del_all(self):
-        Data.SESSION.query(TMeta).delete()
-        Data.SESSION.query(self.T).delete()
-        Data.SESSION.commit()
-
-    def has_update(self):
-        return self.read_old_hash() != self.Hash
-
-    def update(self):
-        if not self.has_update():
-            print('no update')
-            return
-        data = self.load_input()
+    def update(self, force=False):
+        if not force and not self.has_update():
+            return 0
+        data = self.read_json()
         meta_cols = self.meta.tag_type.values
-        if len(data) != meta_cols.size or any(self.meta.tag_type.values != list(data)):  # refill tables if the cols have changed
-            print('write all')
-            self.write_all(data)
-        else:
-            print('updating tags')
-            self.update_tags(data)
-        self.save_hash()
 
-    def read_old_hash(self):
-        if self.FNAME_HASH.exists():
-            return self.FNAME_HASH.read_text()
+        missing = [col.title() for col in data if col not in meta_cols]
+        assert len(missing) == 0, f'Could not find {missing} in {TMeta.name}'
 
-    def load_input(self):
-        data = [(key.title(), value) for key, value in json.loads(self.FNAME.read_text()).items()]
+        self.T.delete(Data.SESSION)  # wipe the whole table
+        n = self.write(data)
+        print(f'inserted {n} row{"s" if n > 1 else ""} into {self.T.name}')
+        return -1
+
+    def read_json(self):
+        data = [(k.title(), v) for k, v in json.loads(self.FNAME.read_text()).items()]
         return dict(sorted(data))
 
-    def write_all(self, data: dict):
-        raise NotImplementedError()
-
-    def update_tags(self, data):
-        raise NotImplementedError()
+    @abstractmethod
+    def write(self, data: dict):
+        """ Insert the data of the main table into the DB"""
+        pass
 
 
 class Categories(_Base):
 
     FNAME = Data.DIR / 'categories.json'
-    FNAME_HASH = Data.DIR / '.excl.hash'
-
     T = TCategory
 
     @property
@@ -128,43 +119,24 @@ class Categories(_Base):
         return df.sort_values(['category', 'tag_type']).set_index(['category', 'tag_type'])
     v = view
 
-    def update(self):
-        return
-
-    def write_all(self, data: dict):
-        self.del_all()
-        Data.SESSION.bulk_save_objects([TMeta(tag_type=col) for col in data])
-        rows = [TCategory(tags=tags, category=cat, meta_id=i) for i, (col, dic) in enumerate(data.items(), 1) for cat, lst in dic.items() for tags in lst]
-        Data.SESSION.bulk_save_objects(rows)
-        Data.SESSION.commit()
+    def write(self, data: dict):
+        meta = self.meta.set_index('tag_type')
+        df = pd.DataFrame(data).stack().explode().reset_index(level=0)
+        df.columns = ['category', 'tags']
+        df = df.join(meta).rename(columns={'id': 'meta_id'})
+        df = df.sort_values(['meta_id', 'category'])
+        return Data.write(df, self.T)
 
 
 class Exclude(_Base):
 
     FNAME = Data.DIR / 'exclude.json'
-    FNAME_HASH = Data.DIR / '.excl.hash'
-
     T = TExclude
 
-    def write_all(self, data: dict):
-        # TODO: update tags should be enough here (exclude meta must be subset of cat meta)
-        self.del_all()
-        Data.SESSION.bulk_save_objects([TMeta(tag_type=col) for col in data])
-        Data.SESSION.bulk_save_objects([TExclude(tags=tags, meta_id=id_) for id_, lst in enumerate(data.values(), 1) for tags in lst])
-        Data.SESSION.commit()
-
-    def update_tags(self, data: dict):
-        meta = self.meta.set_index('tag_type')['id']
-        old_data = self.view
-        new_data = pd.DataFrame([(tags, key) for key, lst in data.items() for tags in lst], columns=old_data.columns)
-        df = new_data.merge(old_data, how='outer', indicator=True)
-        # delete all rows which are not in the new data anymore
-        for _, row in df[df['_merge'] == 'right_only'].iterrows():
-            Data.SESSION.query(TExclude).filter_by(tags=row.tags, meta_id=int(meta.at[row.tag_type])).delete()
-        # add new tags
-        for _, row in df[df['_merge'] == 'left_only'].iterrows():
-            Data.SESSION.add(TExclude(tags=row.tags, meta_id=int(meta.at[row.tag_type])))
-        Data.SESSION.commit()
-
-    def rename_col(self, old_col, new_col):
-        raise NotImplementedError('cmon!')
+    def write(self, data: dict):
+        meta = self.meta.set_index('tag_type')
+        df = pd.DataFrame({'tags': data.values()}, index=list(data.keys()))
+        df = df.explode('tags').sort_index().sort_index(axis=1)
+        df = df.join(meta).rename(columns={'id': 'meta_id'})
+        df = df.sort_values(['meta_id', 'tags'])
+        return Data.write(df, self.T)
