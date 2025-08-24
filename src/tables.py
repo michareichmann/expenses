@@ -20,7 +20,7 @@ class MyBase(Base):
 
     @classproperty
     def name(self):
-        return self.__tablename__
+        return f'T_{self.__tablename__.upper()}'
 
     @classmethod
     def delete(cls, session, *clause, commit=True):
