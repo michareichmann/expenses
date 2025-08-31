@@ -1,7 +1,8 @@
 *
 !*/
+!.gitignore
 
 !*.py
 !*.ipynb
 !*.md
-!.gitignore
+!requirements.txt
