@@ -1,7 +1,8 @@
 import hashlib
 from pathlib import Path
 
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, func, delete, Engine
+from sqlalchemy import (Column, Integer, String, ForeignKey, DateTime, func, delete,
+                        Engine, Numeric, UniqueConstraint)
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -31,6 +32,23 @@ class MyBase(Base):
     @classmethod
     def drop(cls, engine: Engine):
         cls.__table__.drop(engine)
+
+
+class TData(MyBase):
+    __tablename__ = 'data'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    date = Column(DateTime, nullable=False)
+    execution_date = Column(DateTime, nullable=False)
+    title = Column(String, nullable=False)
+    vendor = Column(String)
+    account = Column(String)
+    amount = Column(Numeric(10, 2), nullable=False)
+    balance = Column(Numeric(12, 2), nullable=False)
+
+    __table_args__ = (UniqueConstraint('date', 'title', 'amount', 'balance',
+                                       name='uix_date_tit_am_bal'),)
+
 
 class TMeta(MyBase):
     __tablename__ = 'meta'
@@ -64,8 +82,8 @@ class TCategory(MyBase):
 class TFileHash(MyBase):
     __tablename__ = 'file_hashes'
 
-    fname = Column(String, primary_key=True)     # file path or identifier
-    hash = Column(String, nullable=False)        # SHA256 hex digest
+    fname = Column(String, primary_key=True)  # file path or identifier
+    hash = Column(String, nullable=False)  # SHA256 hex digest
     time_stamp = Column(DateTime, default=func.now(), onupdate=func.now())
 
     @staticmethod

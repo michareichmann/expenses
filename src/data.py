@@ -7,7 +7,7 @@ import pandas as pd
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from src.tables import Base, TMeta, TExclude, TCategory, MyBase, TFileHash
+from src.tables import Base, TMeta, TExclude, TCategory, MyBase, TFileHash, TData
 
 
 # todo: data tables
@@ -49,7 +49,7 @@ class Data(pd.DataFrame):
 
     def _write_meta(self):
         """ update the Meta table. only use if the structure of the input data changed. """
-        new = ['Date', 'Exe Date', 'Title', 'Vendor', 'Account', 'Amount', 'Balance']
+        new = [c.name.title() for c in TData.__table__.columns]
         TMeta.delete(self.SESSION)
         Data.SESSION.bulk_save_objects([TMeta(tag_type=typ) for typ in new])
         Data.SESSION.commit()
