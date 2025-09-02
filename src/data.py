@@ -21,46 +21,21 @@ class Data(pd.DataFrame):
     _Session = sessionmaker(bind=ENGINE)
     SESSION = _Session()
 
+    category, exclude = [None] * 2
+
     def __init__(self, data=None, force_update=False, **kwargs):
         if data is None:
             data = self.load()
         super().__init__(data, **kwargs)
         self.update_db(force_update)
 
+        self.category = Categories()
+        self.exclude = Exclude()
+
     # --------------------------------------------
     # region INIT
     def load(self):
         return self.read(TData)
-
-    @staticmethod
-    def read(table: Type[MyBase]) -> pd.DataFrame:
-        return pd.read_sql(select(table), Data.SESSION.bind)
-
-    @staticmethod
-    def write(df: pd.DataFrame, table: Type[MyBase] = TData, index=False):
-        return df.to_sql(table.__tablename__, Data.SESSION.bind, if_exists='append',
-                         index=index)
-
-    @property
-    def table_names(self):
-        return list(Base.metadata.tables.keys())
-
-    def _write_meta(self):
-        """ update the Meta table.
-        only use if the structure of the input data changed. """
-        new = self.orm_cols
-        TMeta.delete(self.SESSION)
-        Data.SESSION.bulk_save_objects([TMeta(tag_type=typ) for typ in new])
-        Data.SESSION.commit()
-        print(f'updated {TMeta.name} with {len(new)} rows')
-
-    @property
-    def orm_cols(self):
-        return [c.name for c in TData.__table__.columns]
-
-    @property
-    def fnames(self):
-        return list(self.DIR.glob('hist*.csv'))
 
     def read_csv(self, fname: Path):
         cols = [col for col in self.orm_cols if col.lower() != 'id']
@@ -83,6 +58,42 @@ class Data(pd.DataFrame):
         self[:] = self.load()
         print(f'inserted {n1} rows into {TData.name} ({n0} -> {n0 + n1})')
         return 0
+    # endregion
+    # --------------------------------------------
+
+    # --------------------------------------------
+    # region UTILS
+    @staticmethod
+    def read(table: Type[MyBase]) -> pd.DataFrame:
+        return pd.read_sql(select(table), Data.SESSION.bind)
+
+    @staticmethod
+    def write(df: pd.DataFrame, table: Type[MyBase] = TData, index=False):
+        return df.to_sql(table.__tablename__, Data.SESSION.bind, if_exists='append',
+                         index=index)
+
+    @property
+    def table_names(self):
+        return list(Base.metadata.tables.keys())
+
+    @property
+    def fnames(self):
+        return list(self.DIR.glob('hist*.csv'))
+
+    @property
+    def orm_cols(self):
+        return [c.name for c in TData.__table__.columns]
+    # endregion
+    # --------------------------------------------
+
+    def _write_meta(self):
+        """ update the Meta table.
+        only use if the structure of the input data changed. """
+        new = self.orm_cols
+        TMeta.delete(self.SESSION)
+        Data.SESSION.bulk_save_objects([TMeta(tag_type=typ) for typ in new])
+        Data.SESSION.commit()
+        print(f'updated {TMeta.name} with {len(new)} rows')
 
 
 class _Base(ABC):
