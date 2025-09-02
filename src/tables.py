@@ -2,7 +2,7 @@ import hashlib
 from pathlib import Path
 
 from sqlalchemy import (Column, Integer, String, ForeignKey, DateTime, func, delete,
-                        Engine, Numeric, UniqueConstraint)
+                        Engine, Numeric, UniqueConstraint, select)
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -111,3 +111,12 @@ class TFileHash(MyBase):
 
         session.commit()
         return True
+
+    @classmethod
+    def clean(cls, session, data_dir: Path):
+        fnames = session.scalars(select(cls.fname)).all()
+        fnames_new = [str(f) for f in data_dir.glob('*')]
+        for fname in fnames:
+            if fname not in fnames_new:
+                cls.delete(session, cls.fname == fname, commit=False)
+        session.commit()
