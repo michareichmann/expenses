@@ -10,9 +10,6 @@ from sqlalchemy.orm import sessionmaker
 from src.tables import Base, TMeta, TExclude, TCategory, MyBase, TFileHash, TData
 
 
-# todo: data tables
-# todo: handle duplicates (see crypto)
-
 class Data(pd.DataFrame):
 
     DIR = Path(__file__).resolve().parent.parent / 'data'
@@ -24,22 +21,23 @@ class Data(pd.DataFrame):
     _Session = sessionmaker(bind=ENGINE)
     SESSION = _Session()
 
-    def __init__(self, data=None, **kwargs):
+    def __init__(self, data=None, force_update=False, **kwargs):
         if data is None:
             data = self.load()
         super().__init__(data, **kwargs)
+        self.update_db(force_update)
 
     # --------------------------------------------
     # region INIT
     def load(self):
-        return self.read(TExclude)
+        return self.read(TData)
 
     @staticmethod
     def read(table: Type[MyBase]) -> pd.DataFrame:
         return pd.read_sql(select(table), Data.SESSION.bind)
 
     @staticmethod
-    def write(df: pd.DataFrame, table: Type[MyBase], index=False):
+    def write(df: pd.DataFrame, table: Type[MyBase] = TData, index=False):
         return df.to_sql(table.__tablename__, Data.SESSION.bind, if_exists='append',
                          index=index)
 
@@ -48,12 +46,43 @@ class Data(pd.DataFrame):
         return list(Base.metadata.tables.keys())
 
     def _write_meta(self):
-        """ update the Meta table. only use if the structure of the input data changed. """
-        new = [c.name.title() for c in TData.__table__.columns]
+        """ update the Meta table.
+        only use if the structure of the input data changed. """
+        new = self.orm_cols
         TMeta.delete(self.SESSION)
         Data.SESSION.bulk_save_objects([TMeta(tag_type=typ) for typ in new])
         Data.SESSION.commit()
         print(f'updated {TMeta.name} with {len(new)} rows')
+
+    @property
+    def orm_cols(self):
+        return [c.name for c in TData.__table__.columns]
+
+    @property
+    def fnames(self):
+        return list(self.DIR.glob('hist*.csv'))
+
+    def read_csv(self, fname: Path):
+        cols = [col for col in self.orm_cols if col.lower() != 'id']
+        date_cols = [col for col in cols if 'date' in col]
+        return pd.read_csv(fname, names=cols, skiprows=1, usecols=range(7),
+                           parse_dates=date_cols, dayfirst=True, decimal=',')
+
+    def files_to_update(self, all_=False):
+        return [f for f in self.fnames if all_ or TFileHash.has_update(self.SESSION, f)]
+
+    def update_db(self, force=False):
+        fnames = self.files_to_update(force)
+        if len(fnames) == 0:
+            return -1
+        df_in = pd.concat([self.read_csv(f) for f in fnames]).drop_duplicates()
+        # keep only the rows which are not duplicated (not in the db)
+        df_new = pd.concat([self.drop(columns='id'), df_in]).drop_duplicates(keep=False)
+        self.write(df_new)
+        n0, n1 = len(self), len(df_new)
+        self[:] = self.load()
+        print(f'inserted {n1} rows into {TData.name} ({n0} -> {n0 + n1})')
+        return 0
 
 
 class _Base(ABC):
@@ -114,9 +143,9 @@ class Categories(_Base):
 
     @property
     def view(self):
-        s = select(self.T.tags, self.T.category, TMeta.tag_type).join(self.T).order_by('tag_type')
+        s = select(self.T.tags, self.T.category, TMeta.tag_type).join(self.T)
         df = pd.read_sql(s, Data.ENGINE)
-        return df.sort_values(['category', 'tag_type']).set_index(['category', 'tag_type'])
+        return df.set_index(['category', 'tag_type']).sort_index()
     v = view
 
     def write(self, data: dict):
