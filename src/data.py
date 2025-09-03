@@ -1,7 +1,7 @@
 import json
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Type
+from typing import Type, Iterable
 
 import pandas as pd
 from sqlalchemy import create_engine, select
@@ -107,6 +107,40 @@ class Data(pd.DataFrame):
         Data.SESSION.commit()
         print(f'updated {TMeta.name} with {len(new)} rows')
 
+    def contains(self, col: str, lst: Iterable):
+        or_str = '|'.join(x.lower() for x in lst)  # noqa Incorrect Type
+        return self[col].str.lower().str.contains(or_str).astype(bool).fillna(False)
+
+    def filter_excluded(self):
+        df = self.exclude.v.pivot(columns='tag_type')
+        df.columns = df.columns.droplevel(0)
+        masks = [~self.contains(col, df[col].dropna()) for col in df.columns]
+        mask = pd.concat(masks, axis=1).all(axis=1)
+        return self[mask]
+
+    def init_cat_table(self) -> pd.DataFrame:
+        """ init df for the whole period"""
+        dmin, dmax = self.min_date, self.max_date
+        i = [(y, m) for y in range(dmin.year, dmax.year + 1) for m in range(1, 13)]
+        i = i[(dmin.month - 1):-(12 - dmax.month)]
+        ind = pd.MultiIndex.from_tuples(i + [('Total', '')], names=['year', 'month'])
+        categories = self.category.v.droplevel(1).tags.items()
+        return pd.DataFrame(index=ind, columns=pd.MultiIndex.from_tuples(categories))
+
+    def categorise(self):
+        df_data = self.filter_excluded().copy()
+        df_cat = self.init_cat_table()
+        for (cat, col), tags in self.category.agg_lists().items():
+            for tag in tags:
+                mask = df_data[col].str.lower().str.contains(tag.lower())
+                mask = mask.astype(bool).fillna(False)
+                df = df_data[mask]
+                df = df.groupby([df.date.dt.year, df.date.dt.month]).amount.sum()
+                df_cat[(cat, tag)] = df
+                df_data = df_data[~mask]  # remove to avoid double counting
+        df_cat.loc[('Total', '')] = df_cat.sum()
+        return df_cat.fillna(0)
+
 
 class _Base(ABC):
 
@@ -178,6 +212,10 @@ class Categories(_Base):
         df = df.join(meta).rename(columns={'id': 'meta_id'})
         df = df.sort_values(['meta_id', 'category'])
         return Data.write(df, self.T)
+
+    def agg_lists(self) -> pd.Series:
+        df = self.v
+        return df.groupby(df.index.names)['tags'].agg(list)
 
 
 class Exclude(_Base):
