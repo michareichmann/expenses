@@ -35,7 +35,7 @@ class Data(pd.DataFrame):
     # --------------------------------------------
     # region INIT
     def load(self):
-        return self.read(TData)
+        return self.read(TData).set_index('id')
 
     def read_csv(self, fname: Path):
         cols = [col for col in self.orm_cols if col.lower() != 'id']
@@ -83,6 +83,18 @@ class Data(pd.DataFrame):
     @property
     def orm_cols(self):
         return [c.name for c in TData.__table__.columns]
+    # endregion
+    # --------------------------------------------
+
+    # --------------------------------------------
+    # region GETTERS
+    @property
+    def min_date(self):
+        return self.date.min()
+
+    @property
+    def max_date(self):
+        return self.date.max()
     # endregion
     # --------------------------------------------
 
