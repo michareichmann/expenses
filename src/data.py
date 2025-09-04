@@ -175,7 +175,7 @@ class _Base(ABC):
         data = self.read_json()
         meta_cols = self.meta.tag_type.values
 
-        missing = [col.title() for col in data if col not in meta_cols]
+        missing = [col for col in data if col not in meta_cols]
         assert len(missing) == 0, f'Could not find {missing} in {TMeta.name}'
 
         self.T.delete(Data.SESSION)  # wipe the whole table
@@ -184,7 +184,7 @@ class _Base(ABC):
         return -1
 
     def read_json(self):
-        data = [(k.title(), v) for k, v in json.loads(self.FNAME.read_text()).items()]
+        data = [(k.lower(), v) for k, v in json.loads(self.FNAME.read_text()).items()]
         return dict(sorted(data))
 
     @abstractmethod
