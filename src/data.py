@@ -21,7 +21,7 @@ class Data(pd.DataFrame):
     _Session = sessionmaker(bind=ENGINE)
     SESSION = _Session()
 
-    category, exclude = [None] * 2
+    cat, excl = [None] * 2
 
     def __init__(self, data=None, force_update=False, **kwargs):
         if data is None:
@@ -29,8 +29,8 @@ class Data(pd.DataFrame):
         super().__init__(data, **kwargs)
         self.update_db(force_update)
 
-        self.category = Categories()
-        self.exclude = Exclude()
+        self.cat = Categories()
+        self.excl = Exclude()
 
     # --------------------------------------------
     # region INIT
@@ -59,14 +59,27 @@ class Data(pd.DataFrame):
         if len(self):
             aux_cols = ['category', 'sub_category']
             df_new = pd.concat([self.drop(columns=aux_cols), df_in])
-            # keep only the rows which are not duplicated (not in the db)
+            # keep only the rows which are not duplicated (not in the DB)
             df_new = df_new.drop_duplicates(keep=False)
         else:
             df_new = df_in
         self.write(df_new)
+        self.update_excluded()
         n0, n1 = len(self), len(df_new)
         self[:] = self.load()
         print(f'inserted {n1} rows into {TData.name} ({n0} -> {n0 + n1})')
+        return 0
+
+    def update_excluded(self):
+        df = self.excl.v.pivot(columns='tag_type')
+        df.columns = df.columns.droplevel(0)
+        masks = [self.contains(col, df[col].dropna()) for col in df.columns]
+        mask = pd.concat(masks, axis=1).any(axis=1)
+        ids = mask[mask].index.tolist()
+        self.SESSION.query(TData).filter(TData.id.in_(ids)).update(
+            {TData.category: 'excluded'}, synchronize_session=False)
+        self.SESSION.commit()
+        print(f'excluded {len(ids)} rows from {TData.name}')
         return 0
     # endregion
     # --------------------------------------------
@@ -105,6 +118,11 @@ class Data(pd.DataFrame):
     @property
     def max_date(self):
         return self.date.max()
+
+    @property
+    def excluded(self):
+        drop_cols = ['category', 'sub_category']
+        return self[self.category == 'excluded'].drop(columns=drop_cols)
     # endregion
     # --------------------------------------------
 
@@ -121,26 +139,19 @@ class Data(pd.DataFrame):
         or_str = '|'.join(x.lower() for x in lst)  # noqa Incorrect Type
         return self[col].str.lower().str.contains(or_str).astype(bool).fillna(False)
 
-    def filter_excluded(self):
-        df = self.exclude.v.pivot(columns='tag_type')
-        df.columns = df.columns.droplevel(0)
-        masks = [~self.contains(col, df[col].dropna()) for col in df.columns]
-        mask = pd.concat(masks, axis=1).all(axis=1)
-        return self[mask]
-
     def init_cat_table(self) -> pd.DataFrame:
         """ init df for the whole period"""
         dmin, dmax = self.min_date, self.max_date
         i = [(y, m) for y in range(dmin.year, dmax.year + 1) for m in range(1, 13)]
         i = i[(dmin.month - 1):-(12 - dmax.month)]
         ind = pd.MultiIndex.from_tuples(i + [('Total', '')], names=['year', 'month'])
-        categories = self.category.v.droplevel(1).tags.items()
+        categories = self.cat.v.droplevel(1).tags.items()
         return pd.DataFrame(index=ind, columns=pd.MultiIndex.from_tuples(categories))
 
     def categorise(self):
         df_data = self.filter_excluded().copy()
         df_cat = self.init_cat_table()
-        for (cat, col), tags in self.category.agg_lists().items():
+        for (cat, col), tags in self.cat.agg_lists().items():
             for tag in tags:
                 mask = df_data[col].str.lower().str.contains(tag.lower())
                 mask = mask.astype(bool).fillna(False)
