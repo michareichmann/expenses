@@ -35,7 +35,11 @@ class Data(pd.DataFrame):
     # --------------------------------------------
     # region INIT
     def load(self):
-        return self.read(TData).set_index('id')
+        try:
+            return self.read(TData).set_index('id')
+        except Exception as err:
+            print(f'could not read {TData.name} from DB: {err}')
+            return pd.DataFrame(columns=self.orm_cols)
 
     def read_csv(self, fname: Path):
         cols = [col for col in self.orm_cols if col.lower() != 'id']
@@ -44,15 +48,21 @@ class Data(pd.DataFrame):
                            parse_dates=date_cols, dayfirst=True, decimal=',')
 
     def files_to_update(self, all_=False):
-        return [f for f in self.fnames if all_ or TFileHash.has_update(self.SESSION, f)]
+        x = [f for f in self.fnames if all_ or TFileHash.has_update(self.SESSION, f)]
+        return sorted(x, key=lambda f: f.stat().st_ctime)
 
     def update_db(self, force=False):
         fnames = self.files_to_update(force)
         if len(fnames) == 0:
             return -1
         df_in = pd.concat([self.read_csv(f) for f in fnames]).drop_duplicates()
-        # keep only the rows which are not duplicated (not in the db)
-        df_new = pd.concat([self.drop(columns='id'), df_in]).drop_duplicates(keep=False)
+        if len(self):
+            aux_cols = ['category', 'sub_category']
+            df_new = pd.concat([self.drop(columns=aux_cols), df_in])
+            # keep only the rows which are not duplicated (not in the db)
+            df_new = df_new.drop_duplicates(keep=False)
+        else:
+            df_new = df_in
         self.write(df_new)
         n0, n1 = len(self), len(df_new)
         self[:] = self.load()
@@ -101,7 +111,7 @@ class Data(pd.DataFrame):
     def _write_meta(self):
         """ update the Meta table.
         only use if the structure of the input data changed. """
-        new = self.orm_cols
+        new = [col for col in self.orm_cols if 'category' not in col]
         TMeta.delete(self.SESSION)
         Data.SESSION.bulk_save_objects([TMeta(tag_type=typ) for typ in new])
         Data.SESSION.commit()

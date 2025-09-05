@@ -45,6 +45,8 @@ class TData(MyBase):
     account = Column(String)
     amount = Column(Numeric(10, 2), nullable=False)
     balance = Column(Numeric(12, 2), nullable=False)
+    category = Column(String)
+    sub_category = Column(String)
 
     __table_args__ = (UniqueConstraint('date', 'title', 'amount', 'balance',
                                        name='uix_date_tit_am_bal'),)
