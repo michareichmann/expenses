@@ -10,6 +10,8 @@ from sqlalchemy.orm import sessionmaker
 from src.tables import Base, TMeta, TExclude, TCategory, MyBase, TFileHash, TData
 
 
+# TODO: rerun update categories if tables/input files were changed
+
 class Data(pd.DataFrame):
 
     DIR = Path(__file__).resolve().parent.parent / 'data'
@@ -65,6 +67,7 @@ class Data(pd.DataFrame):
             df_new = df_in
         self.write(df_new)
         self.update_excluded()
+        self.update_categories()
         n0, n1 = len(self), len(df_new)
         self[:] = self.load()
         print(f'inserted {n1} rows into {TData.name} ({n0} -> {n0 + n1})')
@@ -81,6 +84,23 @@ class Data(pd.DataFrame):
         self.SESSION.commit()
         print(f'excluded {len(ids)} rows from {TData.name}')
         return 0
+
+    def update_categories(self):
+        """Assigns category and sub_category to the data based on tag matching."""
+        df = self.load()
+        changed_rows = 0
+        for (cat, col), tags in self.cat.agg_lists().items():
+            for tag in tags:
+                mask = df[col].str.lower().str.contains(tag.lower(), na=False)
+                assign_mask = mask & df['category'].isna()  # don't overwrite existing
+                ids = df[assign_mask].index.tolist()
+                if ids:
+                    changed_rows += len(ids)
+                    self.SESSION.query(TData).filter(TData.id.in_(ids)).update(
+                        {TData.category: cat, TData.sub_category: tag},
+                        synchronize_session=False)
+        self.SESSION.commit()
+        print(f'updated {changed_rows} categories in {TData.name}')
     # endregion
     # --------------------------------------------
 
