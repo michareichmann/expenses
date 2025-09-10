@@ -168,19 +168,15 @@ class Data(pd.DataFrame):
         categories = self.cat.v.droplevel(1).tags.items()
         return pd.DataFrame(index=ind, columns=pd.MultiIndex.from_tuples(categories))
 
-    def categorise(self):
-        df_data = self.filter_excluded().copy()
-        df_cat = self.init_cat_table()
-        for (cat, col), tags in self.cat.agg_lists().items():
-            for tag in tags:
-                mask = df_data[col].str.lower().str.contains(tag.lower())
-                mask = mask.astype(bool).fillna(False)
-                df = df_data[mask]
-                df = df.groupby([df.date.dt.year, df.date.dt.month]).amount.sum()
-                df_cat[(cat, tag)] = df
-                df_data = df_data[~mask]  # remove to avoid double counting
-        df_cat.loc[('Total', '')] = df_cat.sum()
-        return df_cat.fillna(0)
+    def categorise(self, show_sub_cat=False, show_month=False):
+        cat_cols = ['category', 'sub_category'] if show_sub_cat else ['category']
+        date_cols = [self.date.dt.year] + ([self.date.dt.month] if show_month else [])
+        df = self.groupby(date_cols + cat_cols)[['amount']].sum()
+        date_names = ['year'] + (['month'] if show_month else [])
+        df = df.unstack(cat_cols).sort_index(axis=1).rename_axis(date_names)
+        df.loc[('total', '') if show_month else 'total', :] = df.sum()
+        return df.style.format('{:,.2f}', na_rep='')
+        # .background_gradient(cmap='Blues', axis=1)
 
 
 class _Base(ABC):
