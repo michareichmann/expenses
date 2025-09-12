@@ -156,17 +156,8 @@ class Data(pd.DataFrame):
         print(f'updated {TMeta.name} with {len(new)} rows')
 
     def contains(self, col: str, lst: Iterable):
-        or_str = '|'.join(x.lower() for x in lst)  # noqa Incorrect Type
+        or_str = '|'.join(x.lower() for x in lst)
         return self[col].str.lower().str.contains(or_str).astype(bool).fillna(False)
-
-    def init_cat_table(self) -> pd.DataFrame:
-        """ init df for the whole period"""
-        dmin, dmax = self.min_date, self.max_date
-        i = [(y, m) for y in range(dmin.year, dmax.year + 1) for m in range(1, 13)]
-        i = i[(dmin.month - 1):-(12 - dmax.month)]
-        ind = pd.MultiIndex.from_tuples(i + [('Total', '')], names=['year', 'month'])
-        categories = self.cat.v.droplevel(1).tags.items()
-        return pd.DataFrame(index=ind, columns=pd.MultiIndex.from_tuples(categories))
 
     def categorise(self, show_sub_cat=False, show_month=False):
         cat_cols = ['category', 'sub_category'] if show_sub_cat else ['category']
@@ -177,6 +168,10 @@ class Data(pd.DataFrame):
         df.loc[('total', '') if show_month else 'total', :] = df.sum()
         return df.style.format('{:,.2f}', na_rep='')
         # .background_gradient(cmap='Blues', axis=1)
+
+    def show_uncategorised(self):
+        drop_cols = ['category', 'sub_category']
+        return self[self.category.isna()].drop(columns=drop_cols)
 
 
 class _Base(ABC):
