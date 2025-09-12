@@ -70,6 +70,8 @@ class Data(pd.DataFrame):
             print(f'inserted {n1} rows into {TData.name} ({n0} -> {n0 + n1})')
         ret_ex = self.update_excluded(force)
         ret_cat = self.update_categories(force)
+        if ret_ex == 0 or ret_cat == 0:
+            self[:] = self.load()
         return ret_ex + ret_cat + (0 if len(fnames) else -1)
 
     def update_excluded(self, force=False):
@@ -249,6 +251,7 @@ class Categories(_Base):
         df.columns = ['category', 'tags']
         df = df.join(meta).rename(columns={'id': 'meta_id'})
         df = df.sort_values(['meta_id', 'category'])
+        df.tags = df.tags.str.lower()
         return Data.write(df, self.T)
 
     def agg_lists(self) -> pd.Series:
