@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from src.tables import Base, TMeta, TExclude, TCategory, MyBase, TFileHash, TData
 
 
-# TODO: rerun update categories if tables/input files were changed
+# TODO: revise category structure: cat, sub_cat and then tags
 
 class Data(pd.DataFrame):
 
@@ -29,10 +29,10 @@ class Data(pd.DataFrame):
         if data is None:
             data = self.load()
         super().__init__(data, **kwargs)
-        self.update_db(force_update)
 
         self.cat = Categories()
         self.excl = Exclude()
+        self.update_db(force_update)
 
     # --------------------------------------------
     # region INIT
@@ -55,25 +55,26 @@ class Data(pd.DataFrame):
 
     def update_db(self, force=False):
         fnames = self.files_to_update(force)
-        if len(fnames) == 0:
-            return -1
-        df_in = pd.concat([self.read_csv(f) for f in fnames]).drop_duplicates()
-        if len(self):
-            aux_cols = ['category', 'sub_category']
-            df_new = pd.concat([self.drop(columns=aux_cols), df_in])
-            # keep only the rows which are not duplicated (not in the DB)
-            df_new = df_new.drop_duplicates(keep=False)
-        else:
-            df_new = df_in
-        self.write(df_new)
-        self.update_excluded()
-        self.update_categories()
-        n0, n1 = len(self), len(df_new)
-        self[:] = self.load()
-        print(f'inserted {n1} rows into {TData.name} ({n0} -> {n0 + n1})')
-        return 0
+        if len(fnames) > 0:
+            df_in = pd.concat([self.read_csv(f) for f in fnames]).drop_duplicates()
+            if len(self):
+                aux_cols = ['category', 'sub_category']
+                df_new = pd.concat([self.drop(columns=aux_cols), df_in])
+                # keep only the rows which are not duplicated (not in the DB)
+                df_new = df_new.drop_duplicates(keep=False)
+            else:
+                df_new = df_in
+            self.write(df_new)
+            n0, n1 = len(self), len(df_new)
+            self[:] = self.load()
+            print(f'inserted {n1} rows into {TData.name} ({n0} -> {n0 + n1})')
+        ret_ex = self.update_excluded(force)
+        ret_cat = self.update_categories(force)
+        return ret_ex + ret_cat + (0 if len(fnames) else -1)
 
-    def update_excluded(self):
+    def update_excluded(self, force=False):
+        if not self.excl.was_updated and not force:
+            return -1
         df = self.excl.v.pivot(columns='tag_type')
         df.columns = df.columns.droplevel(0)
         masks = [self.contains(col, df[col].dropna()) for col in df.columns]
@@ -85,8 +86,10 @@ class Data(pd.DataFrame):
         print(f'excluded {len(ids)} rows from {TData.name}')
         return 0
 
-    def update_categories(self):
+    def update_categories(self, force=False):
         """Assigns category and sub_category to the data based on tag matching."""
+        if not self.cat.was_updated and not force:
+            return -1
         df = self.load()
         changed_rows = 0
         for (cat, col), tags in self.cat.agg_lists().items():
@@ -101,6 +104,7 @@ class Data(pd.DataFrame):
                         synchronize_session=False)
         self.SESSION.commit()
         print(f'updated {changed_rows} categories in {TData.name}')
+        return 0
     # endregion
     # --------------------------------------------
 
@@ -180,6 +184,7 @@ class _Base(ABC):
     T: Type[MyBase]
 
     def __init__(self):
+        self.was_updated = False
         self.update()
 
     @property
@@ -213,6 +218,7 @@ class _Base(ABC):
         self.T.delete(Data.SESSION)  # wipe the whole table
         n = self.write(data)
         print(f'inserted {n} row{"s" if n > 1 else ""} into {self.T.name}')
+        self.was_updated = n > 0
         return -1
 
     def read_json(self):
