@@ -71,7 +71,7 @@ class TMeta(MyBase):
     tag_type = Column(String, nullable=False, unique=True)
 
     exclude = relationship('TExclude', back_populates='meta', cascade='all, delete')
-    category = relationship('TCategory', back_populates='meta', cascade='all, delete')
+    category = relationship('TTag', back_populates='meta', cascade='all, delete')
 
 
 class TExclude(MyBase):
@@ -84,12 +84,48 @@ class TExclude(MyBase):
 
 
 class TCategory(MyBase):
-    __tablename__ = 'category'
+    __tablename__ = 'categories'
 
-    category = Column(String, primary_key=True)
-    tags = Column(String, primary_key=True)
+    id = Column(Integer, primary_key=True)
+    name = Column(String, unique=True, nullable=False)
+
+    subcategories = relationship('TSubCategory', back_populates='category',
+                                 cascade='all, delete')
+
+    @classmethod
+    def write(cls, s: Session, data: list):
+        """ Insert the categories into the DB"""
+        existing = {c.name for c in s.query(cls.name).all()}
+        new = set(data)
+
+        # remove categories not in new data
+        to_remove = existing - new
+        cls.delete(s, cls.name.in_(to_remove), commit=False)
+
+        # Add new categories
+        to_add = new - existing
+        cls.insert(s, [cls(name=cat) for cat in to_add])
+
+
+class TSubCategory(MyBase):
+    __tablename__ = 'subcategories'
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False)
+
+    category_id = Column(Integer, ForeignKey('categories.id'), nullable=False)
+    category = relationship('TCategory', back_populates='subcategories')
+    tags = relationship('TTag', back_populates='subcategory', cascade='all, delete')
+
+
+class TTag(MyBase):
+    __tablename__ = 'tags'
+
+    id = Column(Integer, primary_key=True)
+    value = Column(String, nullable=False)
+    subcategory_id = Column(Integer, ForeignKey('subcategories.id'), nullable=False)
+    subcategory = relationship('TSubCategory', back_populates='tags')
     meta_id = Column(Integer, ForeignKey('meta.id'), nullable=False)
-
     meta = relationship('TMeta', back_populates='category')
 
 
