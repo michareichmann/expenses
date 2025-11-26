@@ -1,9 +1,9 @@
 import hashlib
 from pathlib import Path
 
-from sqlalchemy import (Column, Integer, String, ForeignKey, DateTime, func, delete,
-                        Engine, Numeric, UniqueConstraint, select)
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy import (Column, Integer, String, ForeignKey, DateTime, func, Engine,
+                        Numeric, UniqueConstraint, select)
+from sqlalchemy.orm import declarative_base, relationship, Session
 
 Base = declarative_base()
 
@@ -20,14 +20,26 @@ class MyBase(Base):
     __abstract__ = True
 
     @classproperty
-    def name(self):
+    def name_(self):
         return f'T_{self.__tablename__.upper()}'
 
     @classmethod
-    def delete(cls, session, *clause, commit=True):
-        session.execute(delete(cls).where(*clause))
+    def delete(cls, s: Session, *clause, commit=True, verbose=True):
+        objs = s.query(cls).filter(*clause).all()
+        for o in objs:
+            s.delete(o)
+        if verbose:
+            print(f'Removed {len(objs)} rows from {cls.name_}.')
         if commit:
-            session.commit()
+            s.commit()
+
+    @classmethod
+    def insert(cls, s: Session, objs: list['MyBase'], commit=True, verbose=True):
+        s.bulk_save_objects(objs)
+        if verbose:
+            print(f'Inserted {len(objs)} rows into {cls.name_}.')
+        if commit:
+            s.commit()
 
     @classmethod
     def drop(cls, engine: Engine):
