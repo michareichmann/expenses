@@ -28,7 +28,7 @@ class MyBase(Base):
         objs = s.query(cls).filter(*clause).all()
         for o in objs:
             s.delete(o)
-        if verbose:
+        if verbose and len(objs) > 0:
             print(f'Removed {len(objs)} rows from {cls.name_}.')
         if commit:
             s.commit()
@@ -36,7 +36,7 @@ class MyBase(Base):
     @classmethod
     def insert(cls, s: Session, objs: list['MyBase'], commit=True, verbose=True):
         s.bulk_save_objects(objs)
-        if verbose:
+        if verbose and len(objs) > 0:
             print(f'Inserted {len(objs)} rows into {cls.name_}.')
         if commit:
             s.commit()
@@ -96,14 +96,14 @@ class TCategory(MyBase):
     def write(cls, s: Session, data: list):
         """ Insert the categories into the DB"""
         existing = {c.name for c in s.query(cls.name).all()}
-        new = set(data)
+        from_file = set(data)
 
-        # remove categories not in new data
-        to_remove = existing - new
+        # remove categories not in file data
+        to_remove = existing - from_file
         cls.delete(s, cls.name.in_(to_remove), commit=False)
 
         # Add new categories
-        to_add = new - existing
+        to_add = sorted(from_file - existing)
         cls.insert(s, [cls(name=cat) for cat in to_add])
 
 
@@ -112,10 +112,28 @@ class TSubCategory(MyBase):
 
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
-
     category_id = Column(Integer, ForeignKey('categories.id'), nullable=False)
+
     category = relationship('TCategory', back_populates='subcategories')
     tags = relationship('TTag', back_populates='subcategory', cascade='all, delete')
+
+    @classmethod
+    def write(cls, s: Session, data: dict):
+        """ Insert the subcategories into the DB"""
+        existing = {(sc.name, sc.category_id)
+                    for sc in s.query(cls.name, cls.category_id).all()}
+        cat = {i.name: i.id for i in s.scalars(select(TCategory)).all()}
+        from_file = set((sc, cat[n]) for n, subs in data.items() for sc in subs)
+
+        # remove subcategories not in file data
+        to_remove = existing - from_file
+        for name, cat_id in to_remove:
+            cls.delete(s, cls.name == name, cls.category_id == cat_id, commit=False)
+
+        # Add new subcategories
+        to_add = sorted(from_file - existing, key=lambda x: (x[1], x[0]))
+        objs = [cls(name=subcat, category_id=cat_id) for subcat, cat_id in to_add]
+        cls.insert(s, objs)
 
 
 class TTag(MyBase):
