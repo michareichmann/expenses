@@ -2,7 +2,7 @@ import hashlib
 from pathlib import Path
 
 from sqlalchemy import (Column, Integer, String, ForeignKey, DateTime, func, Engine,
-                        Numeric, UniqueConstraint, select)
+                        Numeric, UniqueConstraint, select, tuple_)
 from sqlalchemy.orm import declarative_base, relationship, Session
 
 Base = declarative_base()
@@ -127,8 +127,7 @@ class TSubCategory(MyBase):
 
         # remove subcategories not in file data
         to_remove = existing - from_file
-        for name, cat_id in to_remove:
-            cls.delete(s, cls.name == name, cls.category_id == cat_id, commit=False)
+        cls.delete(s, tuple_(cls.name, cls.category_id).in_(to_remove), commit=False)
 
         # Add new subcategories
         to_add = sorted(from_file - existing, key=lambda x: (x[1], x[0]))
@@ -145,6 +144,31 @@ class TTag(MyBase):
     subcategory = relationship('TSubCategory', back_populates='tags')
     meta_id = Column(Integer, ForeignKey('meta.id'), nullable=False)
     meta = relationship('TMeta', back_populates='category')
+
+    @classmethod
+    def write(cls, s: Session, data: dict):
+        """ Insert the tags into the DB"""
+        existing = {(t.value, t.subcategory_id, t.meta_id)
+                    for t in s.scalars(select(cls)).all()}
+
+        subcat = {sc.name: sc.id for sc in s.scalars(select(TSubCategory)).all()}
+        meta = {m.tag_type: m.id for m in s.scalars(select(TMeta)).all()}
+        from_file = {(tag, subcat[sc], meta[m])
+                     for subs in data.values()
+                     for sc, td in subs.items()
+                     for m, tags in td.items()
+                     for tag in tags}
+
+        # remove tags not in file data
+        to_remove = existing - from_file
+        cls.delete(s, tuple_(
+            cls.value, cls.subcategory_id, cls.meta_id).in_(to_remove), commit=False)
+
+        # Add new tags
+        to_add = sorted(from_file - existing, key=lambda x: (x[1], x[2], x[0]))
+        objs = [cls(value=value, subcategory_id=sc_id, meta_id=meta_id)
+                for value, sc_id, meta_id in to_add]
+        cls.insert(s, objs)
 
 
 class TFileHash(MyBase):
