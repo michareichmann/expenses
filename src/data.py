@@ -235,14 +235,17 @@ class _Base(ABC):
 
 class Categories(_Base):
 
-    FNAME = Data.DIR / 'categories.json'
-    T = TCategory
+    FNAME = Data.DIR / 'cat.json'
+    T = TTag
 
     @property
     def view(self):
-        s = select(self.T.tags, self.T.category, TMeta.tag_type).join(self.T)
+        s = select(TCategory.name.label('category'),
+                   TSubCategory.name.label('sub_category'),
+                   TMeta.tag_type, TTag.value.label('tag')).select_from(TTag).join(
+            TSubCategory).join(TCategory).join(TMeta)
         df = pd.read_sql(s, Data.ENGINE)
-        return df.set_index(['category', 'tag_type']).sort_index()
+        return df.set_index(['category', 'sub_category', 'tag_type']).sort_index()
     v = view
 
     def write(self, data: dict):
@@ -256,7 +259,7 @@ class Categories(_Base):
 
     def agg_lists(self) -> pd.Series:
         df = self.v
-        return df.groupby(df.index.names)['tags'].agg(list)
+        return df.groupby(df.index.names)['tag'].agg(list)
 
 
 class Exclude(_Base):

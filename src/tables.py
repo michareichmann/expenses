@@ -141,8 +141,9 @@ class TTag(MyBase):
     id = Column(Integer, primary_key=True)
     value = Column(String, nullable=False)
     subcategory_id = Column(Integer, ForeignKey('subcategories.id'), nullable=False)
-    subcategory = relationship('TSubCategory', back_populates='tags')
     meta_id = Column(Integer, ForeignKey('meta.id'), nullable=False)
+
+    subcategory = relationship('TSubCategory', back_populates='tags')
     meta = relationship('TMeta', back_populates='category')
 
     @classmethod
