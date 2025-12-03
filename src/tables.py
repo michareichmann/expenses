@@ -19,9 +19,16 @@ class classproperty:  # noqa
 class MyBase(Base):
     __abstract__ = True
 
+    SORT_BY = [0]
+
     @classproperty
     def name_(self):
         return f'T_{self.__tablename__.upper()}'
+
+    # TODO add option to exclude columns
+    @classproperty
+    def columns_(self):
+        return self.__table__.columns
 
     @classmethod
     def delete(cls, s: Session, *clause, commit=True, verbose=True):
@@ -34,16 +41,46 @@ class MyBase(Base):
             s.commit()
 
     @classmethod
-    def insert(cls, s: Session, objs: list['MyBase'], commit=True, verbose=True):
+    def insert(cls, s: Session, objs: list['MyBase'], commit=True, verbose=True) -> int:
         s.bulk_save_objects(objs)
         if verbose and len(objs) > 0:
             print(f'Inserted {len(objs)} rows into {cls.name_}.')
         if commit:
             s.commit()
+        return len(objs)
 
     @classmethod
     def drop(cls, engine: Engine):
         cls.__table__.drop(engine)
+
+    @classmethod
+    def existing(cls, s: Session) -> set:
+        return {tuple(getattr(e, c.name) for c in cls.__table__.c)
+                for e in s.scalars(select(cls)).all()}
+
+    @classmethod
+    def read_file(cls, data: dict, s: Session) -> set:
+        """ Read the data from file into a set"""
+        return set(data)
+
+    @classmethod
+    def write(cls, s: Session, data: dict) -> int:
+        """ Insert the data into the DB"""
+
+        existing = cls.existing(s)
+        from_file = cls.read_file(data, s)
+
+        # remove categories not in file data
+        to_remove = existing - from_file
+
+        cols = cls.columns_
+        cls.delete(s, tuple_(*cols).in_(to_remove), commit=False)
+
+        # Add new categories
+        to_add = sorted(from_file - existing,
+                        key=lambda x: tuple(x[i] for i in cls.SORT_BY))
+        return cls.insert(s, [cls(**{c.name: val for c, val in zip(cols, vals)})
+                              for vals in to_add])
 
 
 class TData(MyBase):
@@ -76,11 +113,18 @@ class TMeta(MyBase):
 
 class TExclude(MyBase):
     __tablename__ = 'exclude'
+    SORT_BY = [1, 0]
 
     tags = Column(String, primary_key=True)
     meta_id = Column(Integer, ForeignKey('meta.id'), nullable=False)
 
     meta = relationship('TMeta', back_populates='exclude')
+
+    @classmethod
+    def read_file(cls, data: dict, s: Session) -> set:
+        meta_map = {m.tag_type: m.id for m in s.scalars(select(TMeta)).all()}
+        return {(tag.lower(), meta_map[tag_type.lower()])
+                for tag_type, tags in data.items() for tag in tags}
 
 
 class TCategory(MyBase):
