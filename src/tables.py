@@ -154,7 +154,7 @@ class TTag(MyBase):
 
         subcat = {sc.name: sc.id for sc in s.scalars(select(TSubCategory)).all()}
         meta = {m.tag_type: m.id for m in s.scalars(select(TMeta)).all()}
-        from_file = {(tag, subcat[sc], meta[m])
+        from_file = {(tag.lower(), subcat[sc], meta[m])
                      for subs in data.values()
                      for sc, td in subs.items()
                      for m, tags in td.items()
