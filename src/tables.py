@@ -20,15 +20,15 @@ class MyBase(Base):
     __abstract__ = True
 
     SORT_BY = [0]
+    EXCLUDE_COLS = []
 
     @classproperty
     def name_(self):
         return f'T_{self.__tablename__.upper()}'
 
-    # TODO add option to exclude columns
     @classproperty
     def columns_(self):
-        return self.__table__.columns
+        return [c for c in self.__table__.columns if c.name not in self.EXCLUDE_COLS]
 
     @classmethod
     def delete(cls, s: Session, *clause, commit=True, verbose=True):
@@ -55,8 +55,8 @@ class MyBase(Base):
 
     @classmethod
     def existing(cls, s: Session) -> set:
-        return {tuple(getattr(e, c.name) for c in cls.__table__.c)
-                for e in s.scalars(select(cls)).all()}
+        data = set(s.execute(select(*cls.columns_)).all())
+        return {t[0] for t in data} if len(cls.columns_) == 1 else data
 
     @classmethod
     def read_file(cls, data: dict, s: Session) -> set:
@@ -72,7 +72,6 @@ class MyBase(Base):
 
         # remove categories not in file data
         to_remove = existing - from_file
-
         cols = cls.columns_
         cls.delete(s, tuple_(*cols).in_(to_remove), commit=False)
 
@@ -129,6 +128,7 @@ class TExclude(MyBase):
 
 class TCategory(MyBase):
     __tablename__ = 'categories'
+    EXCLUDE_COLS = ['id']
 
     id = Column(Integer, primary_key=True)
     name = Column(String, unique=True, nullable=False)
@@ -136,23 +136,11 @@ class TCategory(MyBase):
     subcategories = relationship('TSubCategory', back_populates='category',
                                  cascade='all, delete')
 
-    @classmethod
-    def write(cls, s: Session, data: list):
-        """ Insert the categories into the DB"""
-        existing = {c.name for c in s.query(cls.name).all()}
-        from_file = set(data)
-
-        # remove categories not in file data
-        to_remove = existing - from_file
-        cls.delete(s, cls.name.in_(to_remove), commit=False)
-
-        # Add new categories
-        to_add = sorted(from_file - existing)
-        cls.insert(s, [cls(name=cat) for cat in to_add])
-
 
 class TSubCategory(MyBase):
     __tablename__ = 'subcategories'
+    SORT_BY = [1, 0]
+    EXCLUDE_COLS = ['id']
 
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
@@ -162,25 +150,15 @@ class TSubCategory(MyBase):
     tags = relationship('TTag', back_populates='subcategory', cascade='all, delete')
 
     @classmethod
-    def write(cls, s: Session, data: dict):
-        """ Insert the subcategories into the DB"""
-        existing = {(sc.name, sc.category_id)
-                    for sc in s.query(cls.name, cls.category_id).all()}
+    def read_file(cls, data: dict, s: Session) -> set:
         cat = {i.name: i.id for i in s.scalars(select(TCategory)).all()}
-        from_file = set((sc, cat[n]) for n, subs in data.items() for sc in subs)
-
-        # remove subcategories not in file data
-        to_remove = existing - from_file
-        cls.delete(s, tuple_(cls.name, cls.category_id).in_(to_remove), commit=False)
-
-        # Add new subcategories
-        to_add = sorted(from_file - existing, key=lambda x: (x[1], x[0]))
-        objs = [cls(name=subcat, category_id=cat_id) for subcat, cat_id in to_add]
-        cls.insert(s, objs)
+        return set((sc, cat[n]) for n, subs in data.items() for sc in subs)
 
 
 class TTag(MyBase):
     __tablename__ = 'tags'
+    SORT_BY = [1, 2, 0]
+    EXCLUDE_COLS = ['id']
 
     id = Column(Integer, primary_key=True)
     value = Column(String, nullable=False)
@@ -191,29 +169,12 @@ class TTag(MyBase):
     meta = relationship('TMeta', back_populates='category')
 
     @classmethod
-    def write(cls, s: Session, data: dict):
-        """ Insert the tags into the DB"""
-        existing = {(t.value, t.subcategory_id, t.meta_id)
-                    for t in s.scalars(select(cls)).all()}
-
+    def read_file(cls, data: dict, s: Session) -> set:
         subcat = {sc.name: sc.id for sc in s.scalars(select(TSubCategory)).all()}
         meta = {m.tag_type: m.id for m in s.scalars(select(TMeta)).all()}
-        from_file = {(tag.lower(), subcat[sc], meta[m])
-                     for subs in data.values()
-                     for sc, td in subs.items()
-                     for m, tags in td.items()
-                     for tag in tags}
-
-        # remove tags not in file data
-        to_remove = existing - from_file
-        cls.delete(s, tuple_(
-            cls.value, cls.subcategory_id, cls.meta_id).in_(to_remove), commit=False)
-
-        # Add new tags
-        to_add = sorted(from_file - existing, key=lambda x: (x[1], x[2], x[0]))
-        objs = [cls(value=value, subcategory_id=sc_id, meta_id=meta_id)
-                for value, sc_id, meta_id in to_add]
-        cls.insert(s, objs)
+        return {(tag.lower(), subcat[sc], meta[m])
+                for subs in data.values() for sc, td in subs.items()
+                for m, tags in td.items() for tag in tags}
 
 
 class TFileHash(MyBase):
