@@ -181,13 +181,11 @@ class Data(pd.DataFrame):
 
 
 class _Base(ABC):
-
     FNAME: Path
     T: Type[MyBase]
 
     def __init__(self):
-        self.was_updated = False
-        self.update()
+        self.was_updated = self.update()
 
     @property
     def table(self):
@@ -198,44 +196,34 @@ class _Base(ABC):
     def meta(self):
         return Data.read(TMeta)
 
-    @property
+    @abstractmethod
     def view(self):
-        s = select(self.T.tags, TMeta.tag_type).join(self.T).order_by('tag_type')
-        return pd.read_sql(s, Data.ENGINE)
-    v = view
+        pass
 
     @classmethod
     def has_update(cls):
         return TFileHash.has_update(Data.SESSION, cls.FNAME)
 
-    def update(self, force=False):
-        if not force and not self.has_update():
-            return 0
-        data = self.read_json()
-        meta_cols = self.meta.tag_type.values
+    @classmethod
+    def write_hash(cls):
+        TFileHash.write(Data.SESSION, cls.FNAME)
 
-        missing = [col for col in data if col not in meta_cols]
-        assert len(missing) == 0, f'Could not find {missing} in {TMeta.name}'
-
-        self.T.delete(Data.SESSION)  # wipe the whole table
-        n = self.write(data)
-        print(f'inserted {n} row{"s" if n > 1 else ""} into {self.T.name}')
-        self.was_updated = n > 0
-        return -1
+    def update(self, force=False) -> bool:
+        if force or self.has_update():
+            self.write_hash()
+            return self.write() > 0
+        return False
 
     def read_json(self):
-        data = [(k.lower(), v) for k, v in json.loads(self.FNAME.read_text()).items()]
-        return dict(sorted(data))
+        return json.loads(self.FNAME.read_text())
 
     @abstractmethod
-    def write(self, data: dict):
+    def write(self) -> int:
         """ Insert the data of the main table into the DB"""
-        pass
 
 
 class Categories(_Base):
-
-    FNAME = Data.DIR / 'cat.json'
+    FNAME = Data.DIR / 'categories.json'
     T = TTag
 
     @property
@@ -248,14 +236,11 @@ class Categories(_Base):
         return df.set_index(['category', 'sub_category', 'tag_type']).sort_index()
     v = view
 
-    def write(self, data: dict):
-        meta = self.meta.set_index('tag_type')
-        df = pd.DataFrame(data).stack().explode().reset_index(level=0)
-        df.columns = ['category', 'tags']
-        df = df.join(meta).rename(columns={'id': 'meta_id'})
-        df = df.sort_values(['meta_id', 'category'])
-        df.tags = df.tags.str.lower()
-        return Data.write(df, self.T)
+    def write(self):
+        data = self.read_json()
+        n = TCategory.write(Data.SESSION, data)
+        n += TSubCategory.write(Data.SESSION, data)
+        return n + TTag.write(Data.SESSION, data)
 
     def agg_lists(self) -> pd.Series:
         df = self.v
@@ -263,14 +248,14 @@ class Categories(_Base):
 
 
 class Exclude(_Base):
-
     FNAME = Data.DIR / 'exclude.json'
     T = TExclude
 
-    def write(self, data: dict):
-        meta = self.meta.set_index('tag_type')
-        df = pd.DataFrame({'tags': data.values()}, index=list(data.keys()))
-        df = df.explode('tags').sort_index().sort_index(axis=1)
-        df = df.join(meta).rename(columns={'id': 'meta_id'})
-        df = df.sort_values(['meta_id', 'tags'])
-        return Data.write(df, self.T)
+    def write(self) -> int:
+        return self.T.write(Data.SESSION, self.read_json())
+
+    @property
+    def view(self):
+        s = select(self.T.tags, TMeta.tag_type).join(self.T).order_by('tag_type')
+        return pd.read_sql(s, Data.ENGINE)
+    v = view
