@@ -210,6 +210,8 @@ class TFileHash(MyBase):
         if record is None:
             record = cls(fname=str(path), hash=hash_)
             s.add(record)
+        else:
+            record.hash = hash_
         s.commit()
 
     @classmethod
