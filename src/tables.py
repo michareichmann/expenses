@@ -102,12 +102,17 @@ class TData(MyBase):
 
 class TMeta(MyBase):
     __tablename__ = 'meta'
+    EXCLUDE_COLS = ['id']
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     tag_type = Column(String, nullable=False, unique=True)
 
     exclude = relationship('TExclude', back_populates='meta', cascade='all, delete')
     category = relationship('TTag', back_populates='meta', cascade='all, delete')
+
+    @classmethod
+    def read_file(cls, data: dict, s: Session) -> set:
+        return set(c.name for c in TData.columns_) - {'category', 'sub_category'}
 
 
 class TExclude(MyBase):
@@ -196,19 +201,16 @@ class TFileHash(MyBase):
         """Return True if file is new/changed, False if unchanged."""
         new_hash = cls.compute(file_path)
         record = session.get(cls, str(file_path))
+        return record is None or record.hash != new_hash
 
-        if record is not None and record.hash == new_hash:
-            return False
-
-        if record is None:  # first time seen
-            record = cls(fname=str(file_path), hash=new_hash)
-            session.add(record)
-
-        elif record.hash != new_hash:
-            record.hash = new_hash
-
-        session.commit()
-        return True
+    @classmethod
+    def write(cls, s: Session, path: Path):
+        hash_ = cls.compute(path)
+        record = s.get(cls, str(path))
+        if record is None:
+            record = cls(fname=str(path), hash=hash_)
+            s.add(record)
+        s.commit()
 
     @classmethod
     def clean(cls, session, data_dir: Path):
