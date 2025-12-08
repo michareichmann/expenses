@@ -31,22 +31,18 @@ class MyBase(Base):
         return [c for c in self.__table__.columns if c.name not in self.EXCLUDE_COLS]
 
     @classmethod
-    def delete(cls, s: Session, *clause, commit=True, verbose=True):
+    def delete(cls, s: Session, *clause, verbose=True):
         objs = s.query(cls).filter(*clause).all()
         for o in objs:
             s.delete(o)
         if verbose and len(objs) > 0:
             print(f'Removed {len(objs)} rows from {cls.name_}.')
-        if commit:
-            s.commit()
 
     @classmethod
-    def insert(cls, s: Session, objs: list['MyBase'], commit=True, verbose=True) -> int:
+    def insert(cls, s: Session, objs: list['MyBase'], verbose=True) -> int:
         s.bulk_save_objects(objs)
         if verbose and len(objs) > 0:
             print(f'Inserted {len(objs)} rows into {cls.name_}.')
-        if commit:
-            s.commit()
         return len(objs)
 
     @classmethod
@@ -73,7 +69,7 @@ class MyBase(Base):
         # remove categories not in file data
         to_remove = existing - from_file
         cols = cls.columns_
-        cls.delete(s, tuple_(*cols).in_(to_remove), commit=False)
+        cls.delete(s, tuple_(*cols).in_(to_remove))
 
         # Add new categories
         to_add = sorted(from_file - existing,
@@ -212,7 +208,6 @@ class TFileHash(MyBase):
             s.add(record)
         else:
             record.hash = hash_
-        s.commit()
 
     @classmethod
     def clean(cls, session, data_dir: Path):
@@ -220,5 +215,4 @@ class TFileHash(MyBase):
         fnames_new = [str(f) for f in data_dir.glob('*')]
         for fname in fnames:
             if fname not in fnames_new:
-                cls.delete(session, cls.fname == fname, commit=False)
-        session.commit()
+                cls.delete(session, cls.fname == fname)
