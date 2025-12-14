@@ -2,10 +2,11 @@ from contextlib import contextmanager
 from typing import Type
 
 import pandas as pd
-from sqlalchemy import create_engine, select, Select
+from sqlalchemy import create_engine, select, Select, Table
 from sqlalchemy.orm import sessionmaker, scoped_session
 
 from src.tables import Base, MyBase
+from src.utils import bytes2str
 
 DATABASE_URL = 'sqlite:///example.db'
 
@@ -44,3 +45,16 @@ def get_session():
         raise
     finally:
         session.close()
+
+
+def list_table_sizes():
+    """ Print per-table sizes (bytes) using dbstat if present. """
+    with get_session() as s:
+        # dbstat returns page-level sizes per object; sum by object name
+        t = Table('dbstat', Base.metadata, autoload_with=engine)
+        q = select(t).where(~t.c.name.contains('autoindex'),
+                            t.c.name != 'sqlite_schema')
+        df = pd.read_sql(q, s.get_bind()).groupby('name')[['ncell', 'pgsize']].sum()
+        df['pgsize'] = df['pgsize'].apply(bytes2str)
+        df = df.rename(columns={'pgsize': 'size'})
+        return df.sort_values('size', ascending=False)
