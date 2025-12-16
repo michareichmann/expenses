@@ -49,12 +49,11 @@ def get_session():
 
 def list_table_sizes():
     """ Print per-table sizes (bytes) using dbstat if present. """
-    with get_session() as s:
-        # dbstat returns page-level sizes per object; sum by object name
-        t = Table('dbstat', Base.metadata, autoload_with=engine)
-        q = select(t).where(~t.c.name.contains('autoindex'),
-                            t.c.name != 'sqlite_schema')
-        df = pd.read_sql(q, s.get_bind()).groupby('name')[['ncell', 'pgsize']].sum()
-        df['pgsize'] = df['pgsize'].apply(bytes2str)
-        df = df.rename(columns={'pgsize': 'size'})
-        return df.sort_values('size', ascending=False)
+    # dbstat returns page-level sizes per object; sum by object name
+    t = Table('dbstat', Base.metadata, autoload_with=engine)
+    q = select(t).where(~t.c.name.contains('autoindex'),
+                        t.c.name != 'sqlite_schema')
+    df = read_sql(q).groupby('name')[['ncell', 'pgsize']].sum()
+    df['pgsize'] = df['pgsize'].apply(bytes2str)
+    df = df.rename(columns={'pgsize': 'size'})
+    return df.sort_values('size', ascending=False)

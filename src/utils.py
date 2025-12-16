@@ -9,4 +9,4 @@ def bytes2str(n: int) -> str:
         if n < 1024:
             return f'{n:.1f}{unit}'
         n /= 1024
-    return f'{n:.1f}TB'
+    return f'{n:.0f}TB'
