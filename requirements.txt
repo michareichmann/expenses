@@ -2,3 +2,4 @@ matplotlib
 jinja2
 pandas
 SQLAlchemy
+numpy
