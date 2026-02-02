@@ -1,6 +1,7 @@
 import hashlib
 from pathlib import Path
 
+import numpy as np
 from sqlalchemy import (Column, Integer, String, ForeignKey, DateTime, func, Engine,
                         Numeric, UniqueConstraint, select, tuple_)
 from sqlalchemy.orm import declarative_base, relationship, Session
@@ -72,8 +73,9 @@ class MyBase(Base):
         cls.delete(s, tuple_(*cols).in_(to_remove))
 
         # Add new categories
-        to_add = sorted(from_file - existing,
-                        key=lambda x: tuple(x[i] for i in cls.SORT_BY))
+        to_add = np.array(sorted(from_file - existing,
+                          key=lambda x: tuple(x[i] for i in cls.SORT_BY)))
+        to_add = to_add.reshape(-1, len(cols))  # ensure 2D array
         return cls.insert(s, [cls(**{c.name: val for c, val in zip(cols, vals)})
                               for vals in to_add])
 
