@@ -5,6 +5,7 @@ import numpy as np
 from sqlalchemy import (Column, Integer, String, ForeignKey, DateTime, func, Engine,
                         Numeric, UniqueConstraint, select, tuple_)
 from sqlalchemy.orm import declarative_base, relationship, Session
+from src.logger import setup_logger
 
 Base = declarative_base()
 
@@ -22,6 +23,7 @@ class MyBase(Base):
 
     SORT_BY = [0]
     EXCLUDE_COLS = []
+    LOG = setup_logger(__name__)
 
     @classproperty
     def name_(self):
@@ -37,13 +39,13 @@ class MyBase(Base):
         for o in objs:
             s.delete(o)
         if verbose and len(objs) > 0:
-            print(f'Removed {len(objs)} rows from {cls.name_}.')
+            cls.LOG.info(f'Removed {len(objs)} rows from {cls.name_}.')
 
     @classmethod
     def insert(cls, s: Session, objs: list['MyBase'], verbose=True) -> int:
         s.bulk_save_objects(objs)
         if verbose and len(objs) > 0:
-            print(f'Inserted {len(objs)} rows into {cls.name_}.')
+            cls.LOG.info(f'Inserted {len(objs)} rows into {cls.name_}.')
         return len(objs)
 
     @classmethod
