@@ -46,6 +46,9 @@ def setup_logger(name: str, log_dir: Path = None) -> logging.Logger:
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
 
+    if logger.hasHandlers():
+        return logger
+
     fmt = '%(asctime)s: %(name)s - %(levelname)s -> %(message)s'
     datefmt = '%Y-%m-%d %H:%M:%S'
 
