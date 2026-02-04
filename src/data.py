@@ -88,25 +88,32 @@ class Data(pd.DataFrame):
         print(f'excluded {len(ids)} rows from {TData.name}')
         return 0
 
-    def update_categories(self, force=False):
-        """Assigns category and sub_category to the data based on tag matching."""
+    def update_categories(self, force=False, overwrite=False):
         if not self.cat.was_updated and not force:
             return -1
         df = self.load()
-        changed_rows = 0
-        for (cat, col), tags in self.cat.agg_lists().items():
-            for tag in tags:
-                mask = df[col].str.lower().str.contains(tag.lower(), na=False)
-                assign_mask = mask & df['category'].isna()  # don't overwrite existing
-                ids = df[assign_mask].index.tolist()
-                if ids:
-                    changed_rows += len(ids)
-                    self.SESSION.query(TData).filter(TData.id.in_(ids)).update(
-                        {TData.category: cat, TData.sub_category: tag},
-                        synchronize_session=False)
-        self.SESSION.commit()
-        print(f'updated {changed_rows} categories in {TData.name}')
-        return 0
+        if not overwrite:
+            df = df[df.category.isna()]
+        df['n_matches'] = 0
+        for (cat, sub_cat, tag_type), tags in self.cat.agg_lists().items():
+            pattern = '|'.join(tags)
+            mask = df[tag_type].str.lower().str.contains(pattern, na=False, regex=True)
+            df.loc[mask, ['category', 'sub_category']] = [cat, sub_cat]
+            df.loc[mask, 'n_matches'] += 1
+        df_upd = df[~df.category.isna()]
+        if not df_upd.empty:
+            self.log.info(f'updated category of {df.n_matches.sum()} rows')
+            counts = df.n_matches.value_counts()
+            if (counts.index > 1).any():
+                self.log.warning(f'{counts[counts.index > 1].sum()} '
+                                 f'rows matched multiple tags')
+            # for idx, (cat, sub_cat) in updates.items():
+            #     self.SESSION.query(TData).filter(TData.id == idx).update(
+            #         {TData.category: cat, TData.sub_category: sub_cat},
+            #         synchronize_session=False)
+        return df
+
+
     # endregion
     # --------------------------------------------
 
