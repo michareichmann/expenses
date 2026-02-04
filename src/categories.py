@@ -7,7 +7,7 @@ from src.db import get_session, read_table, read_sql, select
 from sqlalchemy.orm import Session
 from src.utils import DATA_DIR
 from src.tables import (TMeta, TExclude, TCategory, MyBase, TFileHash, TSubCategory,
-                        TTag)
+                        TTag, TData)
 
 
 class _Base(ABC):
@@ -79,7 +79,11 @@ class Categories(_Base):
 
     def agg_lists(self) -> pd.Series:
         df = self.v
-        return df.groupby(df.index.names)['tag'].agg(list)
+        df = df.groupby(df.index.names)['tag'].agg(list)
+        # sort by tag_type according to TData.TYPE_ORDER
+        sort_indices = df.index.get_level_values(2).map(
+            lambda x: TData.TYPE_ORDER.index(x)).argsort()
+        return df.iloc[sort_indices]
 
 
 class Exclude(_Base):

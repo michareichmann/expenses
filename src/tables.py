@@ -97,6 +97,8 @@ class TData(MyBase):
     __table_args__ = (UniqueConstraint('date', 'title', 'amount', 'balance',
                                        name='uix_date_tit_am_bal'),)
 
+    TYPE_ORDER = ['title', 'vendor', 'account']
+
 
 class TMeta(MyBase):
     __tablename__ = 'meta'
