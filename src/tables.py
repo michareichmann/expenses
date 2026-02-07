@@ -33,6 +33,10 @@ class MyBase(Base):
     def columns_(self):
         return [c for c in self.__table__.columns if c.name not in self.EXCLUDE_COLS]
 
+    @classproperty
+    def column_names(self):
+        return [c.name for c in self.columns_]
+
     @classmethod
     def delete(cls, s: Session, *clause, verbose=True):
         objs = s.query(cls).filter(*clause).all()
