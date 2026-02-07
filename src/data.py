@@ -33,6 +33,29 @@ class Data(pd.DataFrame):
         self.cat = Categories()
         self.excl = Exclude()
         self.update_db(force_update)
+    # --------------------------------------------
+    # region GETTERS
+    @property
+    def fnames(self):
+        return list(self.DIR.glob('hist*.csv'))
+
+    @property
+    def min_date(self):
+        return self.date.min()
+
+    @property
+    def max_date(self):
+        return self.date.max()
+
+    @property
+    def excluded(self):
+        return self[self.category == 'Exclude'].drop(columns=self.AUX_COLS)
+
+    @property
+    def n_excluded(self):
+        return (self.category == 'Exclude').sum()
+    # endregion GETTERS
+    # --------------------------------------------
 
     # --------------------------------------------
     # region INIT
