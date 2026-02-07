@@ -57,44 +57,57 @@ class Data(pd.DataFrame):
     # --------------------------------------------
 
     # --------------------------------------------
-    # region INIT
-    def load(self):
-        try:
-            return self.read(TData).set_index('id')
-        except Exception as err:
-            print(f'could not read {TData.name} from DB: {err}')
-            return pd.DataFrame(columns=self.orm_cols)
+    # region INIT & UPDATE
+    def write(self, s: Session, df: pd.DataFrame):
+        n0, n1 = len(self), len(df)
+        self.log.info(f'inserted {n1} rows into {TData.name_} ({n0} -> {n0 + n1})')
+        df.to_sql(self.T.__tablename__, s.bind, if_exists='append', index=False)
+        return n1
 
-    def read_csv(self, fname: Path):
-        cols = [col for col in self.orm_cols if col.lower() != 'id']
+    @staticmethod
+    def read_from_db():
+        try:
+            return read_table(TData).set_index('id')
+        except Exception as err:
+            print(f'could not read {TData.name_} from DB: {err}')
+            return pd.DataFrame(columns=TData.columns_)
+
+    @staticmethod
+    def read_csv(fname: Path):
+        cols = [col for col in TData.column_names if col.lower() != 'id']
         date_cols = [col for col in cols if 'date' in col]
         return pd.read_csv(fname, names=cols, skiprows=1, usecols=range(7),
                            parse_dates=date_cols, dayfirst=True, decimal=',')
 
-    def files_to_update(self, all_=False):
-        x = [f for f in self.fnames if all_ or TFileHash.has_update(self.SESSION, f)]
-        return sorted(x, key=lambda f: f.stat().st_ctime)
+    def files_to_update(self, s: Session, update_all=False):
+        x = [f for f in self.fnames if update_all or TFileHash.has_update(s, f)]
+        return sorted(x)
 
-    def update_db(self, force=False):
-        fnames = self.files_to_update(force)
-        if len(fnames) > 0:
-            df_in = pd.concat([self.read_csv(f) for f in fnames]).drop_duplicates()
-            if len(self):
-                aux_cols = ['category', 'sub_category']
-                df_new = pd.concat([self.drop(columns=aux_cols), df_in])
-                # keep only the rows which are not duplicated (not in the DB)
-                df_new = df_new.drop_duplicates(keep=False)
-            else:
-                df_new = df_in
-            self.write(df_new)
-            n0, n1 = len(self), len(df_new)
-            self[:] = self.load()
-            print(f'inserted {n1} rows into {TData.name} ({n0} -> {n0 + n1})')
-        ret_ex = self.update_excluded(force)
-        ret_cat = self.update_categories(force)
-        if ret_ex == 0 or ret_cat == 0:
-            self[:] = self.load()
-        return ret_ex + ret_cat + (0 if len(fnames) else -1)
+    def update_(self, force=False):
+        with get_session() as s:
+            hist = self.update_history(s, force)
+            cat = self.update_categories(s, force)
+        if hist > 0 or cat > 0:
+            self[:] = self.read_from_db()
+
+    def update_history(self, s: Session, force=False):
+        fnames = self.files_to_update(s, force)
+        if len(fnames) == 0:
+            return -1
+
+        df_in = pd.concat([self.read_csv(f) for f in fnames]).drop_duplicates()
+        for f in fnames:
+            TFileHash.write(s, f)
+        if len(self):
+            aux_cols = ['category', 'sub_category']
+            df_new = pd.concat([self.drop(columns=aux_cols), df_in])
+            # keep only the rows which are not duplicated (not in the DB)
+            df_new = df_new.drop_duplicates(keep=False)
+        else:
+            df_new = df_in
+        if df_new.empty:
+            return 0
+        return self.write(s, df_new.sort_values('date'))
 
     def update_excluded(self, force=False):
         if not self.excl.was_updated and not force:
@@ -107,13 +120,24 @@ class Data(pd.DataFrame):
         self.SESSION.query(TData).filter(TData.id.in_(ids)).update(
             {TData.category: 'excluded'}, synchronize_session=False)
         self.SESSION.commit()
-        print(f'excluded {len(ids)} rows from {TData.name}')
+        print(f'excluded {len(ids)} rows from {TData.name_}')
         return 0
 
-    def update_categories(self, force=False, overwrite=False):
-        if not self.cat.was_updated and not force:
-            return -1
-        df = self.load()
+    def filter_allowed_duplicates(self, df: pd.DataFrame) -> pd.DataFrame:
+        fname = self.DIR / 'allowed_duplicates.json'
+        data = json.loads(fname.read_text())
+        data = {k.lower(): [w.lower() for w in v] for k, v in data.items()}
+        unknown_types = set(data) - set(TData.TYPE_ORDER)
+        assert len(unknown_types) == 0, (f'invalid types in allowed duplicates: '
+                                         f'{unknown_types}')
+        for tag_type, tags in data.items():
+            pattern = '|'.join(tags)
+            mask = df[tag_type].str.lower().str.contains(pattern, na=False, regex=True)
+            df.loc[mask, 'n_matches'] = df.loc[mask, 'n_matches'].clip(upper=1)
+        return df
+
+    def match_categories(self, overwrite=False) -> pd.DataFrame:
+        df = self.copy()
         if not overwrite:
             df = df[df.category.isna()]
         df['n_matches'] = 0
@@ -122,73 +146,32 @@ class Data(pd.DataFrame):
             mask = df[tag_type].str.lower().str.contains(pattern, na=False, regex=True)
             df.loc[mask, ['category', 'sub_category']] = [cat, sub_cat]
             df.loc[mask, 'n_matches'] += 1
+        return df
+
+    def update_categories(self, s: Session, force=False, overwrite=False):
+        if not self.cat.was_updated and not force:
+            return -1
+        df = self.match_categories(overwrite)
+        df = self.filter_allowed_duplicates(df)
         df_upd = df[~df.category.isna()]
         if not df_upd.empty:
-            self.log.info(f'updated category of {df.n_matches.sum()} rows')
             counts = df.n_matches.value_counts()
             if (counts.index > 1).any():
                 self.log.warning(f'{counts[counts.index > 1].sum()} '
                                  f'rows matched multiple tags')
-            # for idx, (cat, sub_cat) in updates.items():
-            #     self.SESSION.query(TData).filter(TData.id == idx).update(
-            #         {TData.category: cat, TData.sub_category: sub_cat},
-            #         synchronize_session=False)
-        return df
-
+            for idx, row in df_upd.iterrows():
+                s.query(TData).filter(TData.id == idx).update({
+                    TData.category: row.category,
+                    TData.sub_category: row.sub_category},
+                    synchronize_session=False)
+            self.log.info(f'updated category of {len(df_upd)} rows in {TData.name_}')
+            return len(df_upd)
+        return 0
+    # endregion INIT & UPDATE
+    # --------------------------------------------
 
     # endregion
     # --------------------------------------------
-
-    # --------------------------------------------
-    # region UTILS
-    @staticmethod
-    def read(table: Type[MyBase]) -> pd.DataFrame:
-        return pd.read_sql(select(table), Data.SESSION.bind)
-
-    @staticmethod
-    def write(df: pd.DataFrame, table: Type[MyBase] = TData, index=False):
-        return df.to_sql(table.__tablename__, Data.SESSION.bind, if_exists='append',
-                         index=index)
-
-    @property
-    def table_names(self):
-        return list(Base.metadata.tables.keys())
-
-    @property
-    def fnames(self):
-        return list(self.DIR.glob('hist*.csv'))
-
-    @property
-    def orm_cols(self):
-        return [c.name for c in TData.__table__.columns]
-    # endregion
-    # --------------------------------------------
-
-    # --------------------------------------------
-    # region GETTERS
-    @property
-    def min_date(self):
-        return self.date.min()
-
-    @property
-    def max_date(self):
-        return self.date.max()
-
-    @property
-    def excluded(self):
-        drop_cols = ['category', 'sub_category']
-        return self[self.category == 'excluded'].drop(columns=drop_cols)
-    # endregion
-    # --------------------------------------------
-
-    def _write_meta(self):
-        """ update the Meta table.
-        only use if the structure of the input data changed. """
-        new = [col for col in self.orm_cols if 'category' not in col]
-        TMeta.delete(self.SESSION)
-        Data.SESSION.bulk_save_objects([TMeta(tag_type=typ) for typ in new])
-        Data.SESSION.commit()
-        print(f'updated {TMeta.name} with {len(new)} rows')
 
     def contains(self, col: str, lst: Iterable):
         or_str = '|'.join(x.lower() for x in lst)
