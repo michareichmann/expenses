@@ -60,6 +60,8 @@ class Categories(_Base):
     FNAME = DATA_DIR / 'categories.json'
     T = TTag
 
+    COLS = ['category', 'sub_category']
+
     @property
     def view(self):
         s = select(TCategory.name.label('category'),

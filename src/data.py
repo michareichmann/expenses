@@ -16,7 +16,6 @@ class Data(pd.DataFrame):
 
     T = TData
     DIR: Path = DATA_DIR
-    AUX_COLS = ['category', 'sub_category']
 
     def __init__(self, data=None, force_update=False, **kwargs):
         if data is None:
@@ -43,7 +42,7 @@ class Data(pd.DataFrame):
 
     @property
     def excluded(self):
-        return self[self.category == 'Exclude'].drop(columns=self.AUX_COLS)
+        return self[self.category == 'Exclude'].drop(columns=self.cat.COLS)
 
     @property
     def n_excluded(self):
@@ -94,8 +93,7 @@ class Data(pd.DataFrame):
         for f in fnames:
             TFileHash.write(s, f)
         if len(self):
-            aux_cols = ['category', 'sub_category']
-            df_new = pd.concat([self.drop(columns=aux_cols), df_in])
+            df_new = pd.concat([self.drop(columns=self.cat.COLS), df_in])
             # keep only the rows which are not duplicated (not in the DB)
             df_new = df_new.drop_duplicates(keep=False)
         else:
@@ -139,7 +137,7 @@ class Data(pd.DataFrame):
         for (cat, sub_cat, tag_type), tags in self.cat.agg_lists().items():
             pattern = '|'.join(tags)
             mask = df[tag_type].str.lower().str.contains(pattern, na=False, regex=True)
-            df.loc[mask, ['category', 'sub_category']] = [cat, sub_cat]
+            df.loc[mask, self.cat.COLS] = [cat, sub_cat]
             df.loc[mask, 'n_matches'] += 1
         return df
 
@@ -173,7 +171,7 @@ class Data(pd.DataFrame):
         return self[col].str.lower().str.contains(or_str).astype(bool).fillna(False)
 
     def categorise(self, show_sub_cat=False, show_month=False):
-        cat_cols = ['category', 'sub_category'] if show_sub_cat else ['category']
+        cat_cols = self.cat.COLS if show_sub_cat else self.cat.COLS[0]
         date_cols = [self.date.dt.year] + ([self.date.dt.month] if show_month else [])
         df = self.groupby(date_cols + cat_cols)[['amount']].sum()
         date_names = ['year'] + (['month'] if show_month else [])
@@ -183,5 +181,4 @@ class Data(pd.DataFrame):
         # .background_gradient(cmap='Blues', axis=1)
 
     def show_uncategorised(self):
-        drop_cols = ['category', 'sub_category']
-        return self[self.category.isna()].drop(columns=drop_cols)
+        return self[self.category.isna()].drop(columns=self.cat.COLS)
