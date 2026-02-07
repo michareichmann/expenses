@@ -39,17 +39,17 @@ class MyBase(Base):
         return [c.name for c in self.columns_]
 
     @classmethod
-    def delete(cls, s: Session, *clause, verbose=True):
+    def delete(cls, s: Session, *clause):
         objs = s.query(cls).filter(*clause).all()
         for o in objs:
             s.delete(o)
-        if verbose and len(objs) > 0:
+        if len(objs) > 0:
             cls.LOG.info(f'Removed {len(objs)} rows from {cls.name_}.')
 
     @classmethod
-    def insert(cls, s: Session, objs: list['MyBase'], verbose=True) -> int:
+    def insert(cls, s: Session, objs: list['MyBase']) -> int:
         s.bulk_save_objects(objs)
-        if verbose and len(objs) > 0:
+        if len(objs) > 0:
             cls.LOG.info(f'Inserted {len(objs)} rows into {cls.name_}.')
         return len(objs)
 
