@@ -31,8 +31,6 @@ class Data(pd.DataFrame):
         super().__init__(data, **kwargs)
 
         self.cat = Categories()
-        self.excl = Exclude()
-        self.update_db(force_update)
         self.log = setup_logger(__name__)
     # --------------------------------------------
     # region GETTERS
