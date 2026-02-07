@@ -114,28 +114,11 @@ class TMeta(MyBase):
     id = Column(Integer, primary_key=True, autoincrement=True)
     tag_type = Column(String, nullable=False, unique=True)
 
-    exclude = relationship('TExclude', back_populates='meta', cascade='all, delete')
     category = relationship('TTag', back_populates='meta', cascade='all, delete')
 
     @classmethod
     def read_file(cls, data: dict, s: Session) -> set:
         return set(c.name for c in TData.columns_) - {'category', 'sub_category'}
-
-
-class TExclude(MyBase):
-    __tablename__ = 'exclude'
-    SORT_BY = [1, 0]
-
-    tags = Column(String, primary_key=True)
-    meta_id = Column(Integer, ForeignKey('meta.id'), nullable=False)
-
-    meta = relationship('TMeta', back_populates='exclude')
-
-    @classmethod
-    def read_file(cls, data: dict, s: Session) -> set:
-        meta_map = {m.tag_type: m.id for m in s.scalars(select(TMeta)).all()}
-        return {(tag.lower(), meta_map[tag_type.lower()])
-                for tag_type, tags in data.items() for tag in tags}
 
 
 class TCategory(MyBase):

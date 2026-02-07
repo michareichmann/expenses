@@ -1,6 +1,5 @@
 import json
 from pathlib import Path
-from typing import Iterable
 
 import pandas as pd
 from sqlalchemy.orm import Session
@@ -102,20 +101,6 @@ class Data(pd.DataFrame):
             return 0
         return self.write(s, df_new.sort_values('date'))
 
-    def update_excluded(self, force=False):
-        if not self.excl.was_updated and not force:
-            return -1
-        df = self.excl.v.pivot(columns='tag_type')
-        df.columns = df.columns.droplevel(0)
-        masks = [self.contains(col, df[col].dropna()) for col in df.columns]
-        mask = pd.concat(masks, axis=1).any(axis=1)
-        ids = mask[mask].index.tolist()
-        self.SESSION.query(TData).filter(TData.id.in_(ids)).update(
-            {TData.category: 'excluded'}, synchronize_session=False)
-        self.SESSION.commit()
-        print(f'excluded {len(ids)} rows from {TData.name_}')
-        return 0
-
     def filter_allowed_duplicates(self, df: pd.DataFrame) -> pd.DataFrame:
         fname = self.DIR / 'allowed_duplicates.json'
         data = json.loads(fname.read_text())
@@ -162,10 +147,6 @@ class Data(pd.DataFrame):
         return 0
     # endregion INIT & UPDATE
     # --------------------------------------------
-
-    def contains(self, col: str, lst: Iterable):
-        or_str = '|'.join(x.lower() for x in lst)
-        return self[col].str.lower().str.contains(or_str).astype(bool).fillna(False)
 
     def categorise(self, show_sub_cat=False, show_month=False):
         cat_cols = self.cat.COLS if show_sub_cat else self.cat.COLS[0]

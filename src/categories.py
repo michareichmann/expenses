@@ -6,8 +6,7 @@ import pandas as pd
 from src.db import get_session, read_table, read_sql, select
 from sqlalchemy.orm import Session
 from src.utils import DATA_DIR
-from src.tables import (TMeta, TExclude, TCategory, MyBase, TFileHash, TSubCategory,
-                        TTag, TData)
+from src.tables import TMeta, TCategory, MyBase, TFileHash, TSubCategory, TTag, TData
 
 
 class _Base(ABC):
@@ -87,17 +86,3 @@ class Categories(_Base):
             lambda x: TData.TYPE_ORDER.index(x)).argsort()
         return df.iloc[sort_indices]
 
-
-class Exclude(_Base):
-    FNAME = DATA_DIR / 'exclude.json'
-    T = TExclude
-
-    @classmethod
-    def write(cls, s: Session) -> int:
-        return cls.T.write(s, cls.read_json())
-
-    @property
-    def view(self):
-        s = select(self.T.tags, TMeta.tag_type).join(self.T).order_by('tag_type')
-        return read_sql(s)
-    v = view
