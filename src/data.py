@@ -46,6 +46,10 @@ class Data(pd.DataFrame):
     @property
     def n_excluded(self):
         return (self.category == 'Exclude').sum()
+
+    @property
+    def uncategorised(self):
+        return self[self.category.isna()].drop(columns=self.cat.COLS)
     # endregion GETTERS
     # --------------------------------------------
 
@@ -126,7 +130,7 @@ class Data(pd.DataFrame):
             df.loc[mask, 'n_matches'] += 1
         return df
 
-    def update_categories(self, s: Session, force=False, overwrite=False):
+    def update_categories(self, s: Session, force=False, overwrite=True):
         if not self.cat.was_updated and not force:
             return -1
         df = self.match_categories(overwrite)
