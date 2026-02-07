@@ -14,24 +14,19 @@ from src.tables import Base, TMeta, TExclude, TCategory, MyBase, TFileHash, TDat
 
 class Data(pd.DataFrame):
 
-    DIR = Path(__file__).resolve().parent.parent / 'data'
-    DB_PATH = DIR / 'data.db'
-
-    ENGINE = create_engine('sqlite:///example.db', echo=False)
-    Base.metadata.create_all(ENGINE)
-
-    _Session = sessionmaker(bind=ENGINE)
-    SESSION = _Session()
-
-    cat, excl = [None] * 2
+    T = TData
+    DIR: Path = DATA_DIR
+    AUX_COLS = ['category', 'sub_category']
 
     def __init__(self, data=None, force_update=False, **kwargs):
         if data is None:
-            data = self.load()
+            data = self.read_from_db()
         super().__init__(data, **kwargs)
 
         self.cat = Categories()
         self.log = setup_logger(__name__)
+        self.update_(force_update)
+
     # --------------------------------------------
     # region GETTERS
     @property
