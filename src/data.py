@@ -1,16 +1,16 @@
 import json
-from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Type, Iterable
+from typing import Iterable
 
 import pandas as pd
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session
 
-from src.tables import Base, TMeta, TExclude, TCategory, MyBase, TFileHash, TData
+from src.categories import Categories
+from src.db import read_table, get_session
+from src.logger import setup_logger
+from src.tables import TFileHash, TData
+from src.utils import DATA_DIR
 
-
-# TODO: revise category structure: cat, sub_cat and then tags
 
 class Data(pd.DataFrame):
 
