@@ -6,6 +6,7 @@ from sqlalchemy import (Column, Integer, String, ForeignKey, DateTime, func, Eng
                         Numeric, UniqueConstraint, select, tuple_)
 from sqlalchemy.orm import declarative_base, relationship, Session
 from src.logger import setup_logger
+from src.utils import DATA_DIR
 
 Base = declarative_base()
 
@@ -220,7 +221,8 @@ class TFileHash(MyBase):
             record.hash = hash_
 
     @classmethod
-    def clean(cls, session, data_dir: Path):
+    def clean(cls, session, data_dir: Path = None):
+        data_dir = data_dir or DATA_DIR
         fnames = session.scalars(select(cls.fname)).all()
         fnames_new = [str(f) for f in data_dir.glob('*')]
         for fname in fnames:
