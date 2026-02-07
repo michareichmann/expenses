@@ -163,9 +163,6 @@ class Data(pd.DataFrame):
     # endregion INIT & UPDATE
     # --------------------------------------------
 
-    # endregion
-    # --------------------------------------------
-
     def contains(self, col: str, lst: Iterable):
         or_str = '|'.join(x.lower() for x in lst)
         return self[col].str.lower().str.contains(or_str).astype(bool).fillna(False)
