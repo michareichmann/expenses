@@ -147,16 +147,3 @@ class Data(pd.DataFrame):
         return 0
     # endregion INIT & UPDATE
     # --------------------------------------------
-
-    def categorise(self, show_sub_cat=False, show_month=False):
-        cat_cols = self.cat.COLS if show_sub_cat else self.cat.COLS[0]
-        date_cols = [self.date.dt.year] + ([self.date.dt.month] if show_month else [])
-        df = self.groupby(date_cols + cat_cols)[['amount']].sum()
-        date_names = ['year'] + (['month'] if show_month else [])
-        df = df.unstack(cat_cols).sort_index(axis=1).rename_axis(date_names)
-        df.loc[('total', '') if show_month else 'total', :] = df.sum()
-        return df.style.format('{:,.2f}', na_rep='')
-        # .background_gradient(cmap='Blues', axis=1)
-
-    def show_uncategorised(self):
-        return self[self.category.isna()].drop(columns=self.cat.COLS)
