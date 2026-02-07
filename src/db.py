@@ -57,3 +57,8 @@ def list_table_sizes():
     df['pgsize'] = df['pgsize'].apply(bytes2str)
     df = df.rename(columns={'pgsize': 'size'})
     return df.sort_values('size', ascending=False)
+
+
+def table_names():
+    return list(Base.metadata.tables.keys())
+
