@@ -1,6 +1,8 @@
 import pandas as pd
+import plotly.graph_objects as go
 from src.data import Data
 from src.tables import TData
+from datetime import datetime
 
 
 class Analysis:
@@ -15,7 +17,7 @@ class Analysis:
     def data(self):
         return self.data_.query('category != "Exclude"')
 
-    def categorise(self, show_sub_cat=False, show_month=False, axis='index', bkg=False):
+    def categorise(self, show_sub_cat=False, show_month=False):
         cat_cols = self.cat.COLS if show_sub_cat else self.cat.COLS[:1]
         date_cols = self.date_cols if show_month else self.date_cols[:1]
         df = self.data.groupby(date_cols + cat_cols)['amount'].sum()
@@ -24,12 +26,49 @@ class Analysis:
         idx_tot = ('total', '') if show_month else 'total'
         df.loc[idx_tot, :] = df.sum()
         return df
-        dfs = df.style.format('{:,.0f}', na_rep='').set_caption('Expenses')
+
+    def show_categories(self, show_month=False, bkg=False, axis=0):
+        df = self.categorise(show_sub_cat=False, show_month=show_month)
+        caption = f'{"Montly" if show_month else "Yearly"} Expenses'
+        dfs = df.style.format('{:,.0f}', na_rep='').set_caption(caption)
         if bkg:
-            ...
-        subset = pd.IndexSlice[df.index != idx_tot, ~df.columns.str.contains('Income')]
-        return (df.style.format('{:,.0f}', na_rep='')
-                .background_gradient(cmap='Blues_r', axis=axis, subset=subset))  # noqa
+            subset = pd.IndexSlice[df.index[:-1], ~df.columns.str.contains('Income')]
+            dfs = (dfs.format('{:,.0f}', na_rep='')
+                   .background_gradient(cmap='Blues_r', axis=axis, subset=subset))  # noqa
+        return dfs
+
+    def plot_category(self, cat, show_month=False):
+        df = self.categorise(show_month=show_month)
+
+        # Combine year and month indices into datetime if show_month is True
+        if show_month:
+            x = df.index[:-1].map(lambda i: datetime(year=i[0], month=i[1], day=1))
+        else:
+            x = df.index[:-1]
+
+        # Create the figure
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=x,
+            y=abs(df[cat]),
+            mode='lines+markers', name=str(cat), line=dict(width=2),
+            marker=dict(size=8)
+        ))
+
+        # Update layout
+        time_period = "Monthly" if show_month else "Yearly"
+        fig.update_layout(
+            title=f"{time_period} {cat} Expenses",
+            xaxis_title="Date" if show_month else "Year",
+            yaxis_title="Amount",
+            hovermode='x unified',
+            template='plotly_white'
+        )
+        return fig
+
+    def show_subcats(self, show_month=False, bkg=False, axis=0):
+        ...
+
 
     def show_subcat(self, name):
         df = self.data.query(f'sub_category == "{name}"')

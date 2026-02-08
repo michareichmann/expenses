@@ -4,3 +4,4 @@ pandas
 SQLAlchemy
 numpy
 colored
+plotly
