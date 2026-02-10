@@ -50,7 +50,7 @@ class Analysis:
 
     def plot_category(self, cat=None, sub_cat=None, show_month=False):
         df = self.categorise(show_sub_cat=sub_cat is not None, show_month=show_month)
-        df = abs(df).iloc[:-1]
+        df = df.abs().iloc[:-1]
         if sub_cat is not None:
             df = df.droplevel('category', axis=1)
 
@@ -73,10 +73,19 @@ class Analysis:
         )
         return fig
 
-    def show_subcat(self, name):
-        df = self.data.query(f'sub_category == "{name}"')
+    @staticmethod
+    def format_cat(df: pd.DataFrame):
         cols = TData.TYPE_ORDER[::-1] + [df.date.dt.year, df.date.dt.month]
         df = df.set_index(cols)[['amount']]
         df.index.names = TData.TYPE_ORDER[::-1] + ['year', 'month']
         df = df.sort_index()
-        return df.style.format('{:,.0f}', na_rep='').set_caption(f'Expenses in {name}')
+        return df.style.format('{:,.0f} zł', na_rep='')
+
+    def show_subcat(self, name):
+        df = self.data.query(f'sub_category == "{name}"')
+        return self.format_cat(df).set_caption(f'Expenses in {name}')
+
+    def show_uncategorised(self):
+        dfs = self.format_cat(self.data_.uncategorised)
+        return dfs.set_caption('Uncategorised Expenses')
+
