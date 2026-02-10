@@ -123,11 +123,22 @@ class Data(pd.DataFrame):
         if not overwrite:
             df = df[df.category.isna()]
         df['n_matches'] = 0
+        df['new'] = False
+        upd_cols = [f'updated_{col}' for col in self.cat.COLS]
+        df[upd_cols] = [False, False]
         for (cat, sub_cat, tag_type), tags in self.cat.agg_lists().items():
             pattern = '|'.join(tags)
             mask = df[tag_type].str.lower().str.contains(pattern, na=False, regex=True)
-            df.loc[mask, self.cat.COLS] = [cat, sub_cat]
+
+            df.loc[mask, 'new'] = df.loc[mask, self.cat.COLS[0]].isna()
             df.loc[mask, 'n_matches'] += 1
+
+            new = df.loc[mask, 'new']
+            matched = df.loc[mask, 'n_matches'] > 1
+            changed = df.loc[mask, self.cat.COLS] != [cat, sub_cat]
+            df.loc[mask, upd_cols] = changed.apply(lambda c: c & ~new & ~matched).values
+
+            df.loc[mask, self.cat.COLS] = [cat, sub_cat]
         return df
 
     def update_categories(self, s: Session, force=False, overwrite=True):
@@ -141,12 +152,20 @@ class Data(pd.DataFrame):
             if (counts.index > 1).any():
                 self.log.warning(f'{counts[counts.index > 1].sum()} '
                                  f'rows matched multiple tags')
+            cols = ['new'] + [f'updated_{col}' for col in self.cat.COLS]
+            df_upd = df_upd[df_upd[cols].any(axis=1)]
             for idx, row in df_upd.iterrows():
                 s.query(TData).filter(TData.id == idx).update({
                     TData.category: row.category,
                     TData.sub_category: row.sub_category},
                     synchronize_session=False)
-            self.log.info(f'updated category of {len(df_upd)} rows in {TData.name_}')
+            if df.new.any():
+                self.log.info(f'categorised {df.new.sum()} new rows in {TData.name_}')
+            for col in cols[1:]:
+                if df_upd[col].any():
+                    name = col.replace('updated_', '')
+                    self.log.info(f'updated {name} of {df_upd[col].sum()} rows in '
+                                  f'{TData.name_}')
             return len(df_upd)
         return 0
     # endregion INIT & UPDATE
