@@ -85,7 +85,7 @@ class Analysis:
         df = self.data.query(f'sub_category == "{name}"')
         return self.format_cat(df).set_caption(f'Expenses in {name}')
 
-    def show_uncategorised(self):
-        dfs = self.format_cat(self.data_.uncategorised)
-        return dfs.set_caption('Uncategorised Expenses')
+    def show_uncategorised(self, n=None):
+        df = self.data_.uncategorised.head(n)
+        return self.format_cat(df).set_caption('Uncategorised Expenses')
 
