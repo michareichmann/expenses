@@ -1,8 +1,11 @@
+import calendar
+from datetime import datetime
+
 import pandas as pd
 import plotly.express as px
-from src.data import Data
-from src.tables import TData
-from datetime import datetime
+
+from expenses.data import Data
+from expenses.tables import TData
 
 
 class Analysis:
@@ -73,19 +76,30 @@ class Analysis:
         )
         return fig
 
+    def plot_distribution(self, show_month=False):
+        """ plot a pie-chart of the distribution of expenses by category
+        and/or sub-category. """
+
     @staticmethod
-    def format_cat(df: pd.DataFrame):
-        cols = TData.TYPE_ORDER[::-1] + [df.date.dt.year, df.date.dt.month]
-        df = df.set_index(cols)[['amount']]
-        df.index.names = TData.TYPE_ORDER[::-1] + ['year', 'month']
-        df = df.sort_index()
-        return df.style.format('{:,.0f} zł', na_rep='')
+    def format_cat(df: pd.DataFrame, prec=0, n=None, *extra_cols):
+        date_cols = [df.date.dt.year, df.date.dt.month, df.date.dt.day]
+        cols = TData.TYPE_ORDER[::-1] + date_cols
+        df = df.set_index(cols)[['amount'] + list(extra_cols)]
+        df.index.names = TData.TYPE_ORDER[::-1] + ['year', 'month', 'day']
+        df = df.sort_index().head(n)
+        return df.style.format(f'{{:,.{prec}f}} zł', na_rep='')
 
     def show_subcat(self, name):
         df = self.data.query(f'sub_category == "{name}"')
         return self.format_cat(df).set_caption(f'Expenses in {name}')
 
     def show_uncategorised(self, n=None):
-        df = self.data_.uncategorised.head(n)
-        return self.format_cat(df).set_caption('Uncategorised Expenses')
+        df = self.data_.uncategorised
+        return self.format_cat(df, 2, n).set_caption('Uncategorised Expenses')
+
+    def show_date(self, y, m, dmin=None, dmax=None):
+        dmin_ = datetime(year=y, month=m, day=dmin or 1)
+        dmax_ = datetime(year=y, month=m, day=dmax or calendar.monthrange(y, m)[1])
+        df = self.data_.query('date >= @dmin_ and date <= @dmax_')
+        return self.format_cat(df, 2)
 

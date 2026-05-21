@@ -2,11 +2,14 @@ import json
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Type
+
 import pandas as pd
-from src.db import get_session, read_table, read_sql, select
 from sqlalchemy.orm import Session
-from src.utils import DATA_DIR
-from src.tables import TMeta, TCategory, MyBase, TFileHash, TSubCategory, TTag, TData
+
+from expenses.db import get_session, read_table, read_sql, select
+from expenses.tables import (TMeta, TCategory, MyBase, TFileHash, TSubCategory, TTag,
+                             TData)
+from expenses.utils import DATA_DIR
 
 
 class _Base(ABC):

@@ -5,8 +5,8 @@ import pandas as pd
 from sqlalchemy import create_engine, select, Select, Table
 from sqlalchemy.orm import sessionmaker, scoped_session
 
-from src.tables import Base, MyBase
-from src.utils import bytes2str
+from expenses.tables import Base, MyBase
+from expenses.utils import bytes2str
 
 DATABASE_URL = 'sqlite:///example.db'
 

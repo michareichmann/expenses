@@ -5,8 +5,9 @@ import numpy as np
 from sqlalchemy import (Column, Integer, String, ForeignKey, DateTime, func, Engine,
                         Numeric, UniqueConstraint, select, tuple_)
 from sqlalchemy.orm import declarative_base, relationship, Session
-from src.logger import setup_logger
-from src.utils import DATA_DIR
+
+from expenses.logger import setup_logger
+from expenses.utils import DATA_DIR
 
 Base = declarative_base()
 

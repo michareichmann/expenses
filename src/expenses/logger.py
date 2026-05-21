@@ -1,9 +1,11 @@
 import logging
 import logging.handlers
-from pathlib import Path
-from src.utils import TOP_DIR
-from colored import fg, attr
 import sys
+from pathlib import Path
+
+from colored import fg, attr
+
+from expenses.utils import ROOT_DIR
 
 
 class ColoredFormatter(logging.Formatter):
@@ -41,7 +43,7 @@ def setup_logger(name: str, log_dir: Path = None) -> logging.Logger:
     Returns:
         Configured logger instance
     """
-    log_dir = log_dir or (TOP_DIR / 'logs')
+    log_dir = log_dir or (ROOT_DIR / 'logs')
     log_dir.mkdir(parents=True, exist_ok=True)
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)

@@ -4,11 +4,11 @@ from pathlib import Path
 import pandas as pd
 from sqlalchemy.orm import Session
 
-from src.categories import Categories
-from src.db import read_table, get_session
-from src.logger import setup_logger
-from src.tables import TFileHash, TData
-from src.utils import DATA_DIR
+from expenses.categories import Categories
+from expenses.db import read_table, get_session
+from expenses.logger import setup_logger
+from expenses.tables import TFileHash, TData
+from expenses.utils import DATA_DIR
 
 
 class Data(pd.DataFrame):
@@ -48,8 +48,12 @@ class Data(pd.DataFrame):
         return (self.category == 'Exclude').sum()
 
     @property
+    def no_cat(self):
+        return self[self.cat.COLS[0]].isna()
+
+    @property
     def uncategorised(self):
-        return self[self.category.isna()].drop(columns=self.cat.COLS)
+        return self[self.no_cat].drop(columns=self.cat.COLS)
     # endregion GETTERS
     # --------------------------------------------
 
@@ -82,9 +86,9 @@ class Data(pd.DataFrame):
 
     def update_(self, force=False):
         with get_session() as s:
-            hist = self.update_history(s, force)
+            self.update_history(s, force)
             cat = self.update_categories(s, force)
-        if hist > 0 or cat > 0:
+        if cat > 0:  # updated cols only written to DB after session closed
             self[:] = self.read_from_db()
 
     def update_history(self, s: Session, force=False):
@@ -103,7 +107,9 @@ class Data(pd.DataFrame):
             df_new = df_in
         if df_new.empty:
             return 0
-        return self.write(s, df_new.sort_values('date'))
+        n = self.write(s, df_new.sort_values('date'))
+        self[:] = self.read_from_db()
+        return n
 
     def filter_allowed_duplicates(self, df: pd.DataFrame) -> pd.DataFrame:
         fname = self.DIR / 'allowed_duplicates.json'
@@ -121,7 +127,7 @@ class Data(pd.DataFrame):
     def match_categories(self, overwrite=False) -> pd.DataFrame:
         df = self.copy()
         if not overwrite:
-            df = df[df.category.isna()]
+            df = df[self.no_cat]
         df['n_matches'] = 0
         df['new'] = False
         upd_cols = [f'updated_{col}' for col in self.cat.COLS]
@@ -129,9 +135,11 @@ class Data(pd.DataFrame):
         for (cat, sub_cat, tag_type), tags in self.cat.agg_lists().items():
             pattern = '|'.join(tags)
             mask = df[tag_type].str.lower().str.contains(pattern, na=False, regex=True)
+            same_cat = (df[self.cat.COLS] == [cat, sub_cat]).all(axis=1)
+            mask &= ~same_cat  # ignore rows which already have the same cat/sub-cat
 
-            df.loc[mask, 'new'] = df.loc[mask, self.cat.COLS[0]].isna()
             df.loc[mask, 'n_matches'] += 1
+            df.loc[mask, 'new'] |= df.loc[mask, self.cat.COLS[0]].isna()
 
             new = df.loc[mask, 'new']
             matched = df.loc[mask, 'n_matches'] > 1
@@ -170,3 +178,7 @@ class Data(pd.DataFrame):
         return 0
     # endregion INIT & UPDATE
     # --------------------------------------------
+
+    def delete_rows(self):
+        with get_session() as s:
+            self.T.delete(s)
