@@ -5,4 +5,5 @@
 !*.py
 !*.ipynb
 !*.md
-!requirements.txt
+!pyproject.toml
+!uv.lock
